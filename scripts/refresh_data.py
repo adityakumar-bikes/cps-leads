@@ -55,8 +55,16 @@ SKIP_SHEETS = {
 }
 
 VALID_BRANDS = {
-    "ather", "bgauss", "ampere electric", "vespa", "aprilia",
-    "ola electric", "bajaj", "ktm", "triumph", "husqvarna motorcycles",
+    "ather", "bgauss", "ampere electric", "ampere", "vespa", "aprilia", "piaggio",
+    "ola electric", "ola", "bajaj", "ktm", "triumph", "husqvarna motorcycles",
+}
+
+# Normalize short brand names → canonical display names (for consistent aggregation)
+BRAND_NORMALIZE = {
+    "ampere": "Ampere Electric",
+    "ampere electric": "Ampere Electric",
+    "ola": "Ola Electric",
+    "ola electric": "Ola Electric",
 }
 
 def is_brand_sheet(sheet_label: str) -> bool:
@@ -77,9 +85,13 @@ def is_brand_sheet(sheet_label: str) -> bool:
         if skip in sl:
             return False
 
-    # Accept if the sheet name contains a brand
+    # Accept if the sheet name contains a brand (or first word of multi-word brand)
     for brand in VALID_BRANDS:
         if brand in sl:
+            return True
+        # e.g. sheet "Ampere" should match brand "ampere electric"
+        first_word = brand.split()[0]
+        if len(first_word) >= 4 and first_word in sl:
             return True
 
     # Accept plain month sheets: "apr'25", "feb'26", "jan 2026", etc.
@@ -116,8 +128,12 @@ MONTH_ORDER = [
 
 # ── Auth & Drive helpers ─────────────────────────────────────────────────────
 
-def get_drive_service():
-    scopes = ["https://www.googleapis.com/auth/drive.readonly"]
+def get_services():
+    """Return (drive_service, sheets_service) both authenticated."""
+    scopes = [
+        "https://www.googleapis.com/auth/drive.readonly",
+        "https://www.googleapis.com/auth/spreadsheets.readonly",
+    ]
     creds_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
     if creds_json:
         info = json.loads(creds_json)
@@ -127,7 +143,15 @@ def get_drive_service():
         if not os.path.exists(key_file):
             sys.exit("ERROR: No credentials found. Set GOOGLE_SERVICE_ACCOUNT_JSON env var or place credentials.json in repo root.")
         creds = service_account.Credentials.from_service_account_file(key_file, scopes=scopes)
-    return build("drive", "v3", credentials=creds)
+    drive_svc  = build("drive",   "v3", credentials=creds)
+    sheets_svc = build("sheets",  "v4", credentials=creds)
+    return drive_svc, sheets_svc
+
+
+def get_drive_service():
+    """Backward-compat wrapper — returns only the Drive service."""
+    drive_svc, _ = get_services()
+    return drive_svc
 
 
 def list_folder_sheets(service):
@@ -150,9 +174,15 @@ def list_folder_sheets(service):
     return results
 
 
+class FileTooLargeError(Exception):
+    """Raised when Google Drive rejects the ZIP export due to file size."""
+    pass
+
+
 def export_as_zip(service, file_id, max_retries=3):
     """Export a Google Sheets file as ZIP (each sheet becomes a separate CSV).
-    Retries up to max_retries times on timeout or transient errors."""
+    Retries up to max_retries times on timeout or transient errors.
+    Raises FileTooLargeError immediately (no retry) when exportSizeLimitExceeded."""
     for attempt in range(max_retries):
         try:
             req = service.files().export_media(fileId=file_id, mimeType="application/zip")
@@ -164,12 +194,116 @@ def export_as_zip(service, file_id, max_retries=3):
             buf.seek(0)
             return buf
         except Exception as e:
+            err_str = str(e)
+            if "exportSizeLimitExceeded" in err_str or "too large to be exported" in err_str.lower():
+                raise FileTooLargeError(f"exportSizeLimitExceeded for {file_id}") from e
             if attempt < max_retries - 1:
                 wait = 15 * (attempt + 1)
                 print(f"    ⚠ Attempt {attempt+1} failed ({e}), retrying in {wait}s…")
                 time.sleep(wait)
             else:
+                # After all retries, fall back to Sheets API for any server error on Sheets files
+                raise FileTooLargeError(f"ZIP export failed after {max_retries} attempts — trying Sheets API") from e
+
+
+# ── Sheets API v4 fallback ───────────────────────────────────────────────────
+
+def export_via_sheets_api(sheets_svc, file_id, file_name):
+    """
+    Read all brand-data sheets from a Spreadsheet using the Sheets API v4.
+    Used as a fallback when the Drive ZIP export fails with exportSizeLimitExceeded.
+    Returns list of row dicts with COLS keys, same as parse_zip_rows().
+    """
+    rows = []
+    cols_lower = {c.lower(): c for c in COLS}
+
+    # Step 1: list all sheets in the workbook (with retries)
+    meta = None
+    for attempt in range(4):
+        try:
+            meta = sheets_svc.spreadsheets().get(
+                spreadsheetId=file_id,
+                fields="sheets.properties.title",
+            ).execute()
+            break
+        except Exception as e:
+            if attempt < 3:
+                wait = 20 * (attempt + 1)
+                print(f"    ⚠ Sheets API metadata attempt {attempt+1} failed ({e}), retrying in {wait}s…")
+                time.sleep(wait)
+            else:
                 raise
+    sheet_titles = [s["properties"]["title"] for s in meta.get("sheets", [])]
+    print(f"    Sheets API: found {len(sheet_titles)} sheets in '{file_name}'")
+
+    for title in sheet_titles:
+        if not is_brand_sheet(title):
+            print(f"    skip sheet: {title}")
+            continue
+        print(f"    reading sheet: {title}")
+
+        # Step 2: read all data from this sheet (with retries for transient errors)
+        result = None
+        for attempt in range(4):
+            try:
+                result = sheets_svc.spreadsheets().values().get(
+                    spreadsheetId=file_id,
+                    range=f"'{title}'",   # no column limit → full sheet
+                    valueRenderOption="FORMATTED_VALUE",
+                    dateTimeRenderOption="FORMATTED_STRING",
+                ).execute()
+                break
+            except Exception as e:
+                if attempt < 3:
+                    wait = 20 * (attempt + 1)
+                    print(f"    ⚠ Sheets API attempt {attempt+1} failed for '{title}' ({e}), retrying in {wait}s…")
+                    time.sleep(wait)
+                else:
+                    print(f"    ERROR reading sheet '{title}' after 4 attempts: {e}")
+        if result is None:
+            continue
+
+        values = result.get("values", [])
+        if not values or len(values) < 2:
+            print(f"    sheet '{title}': empty or header-only, skipping")
+            continue
+
+        # First non-empty row is the header
+        header_row = values[0]
+        header = [str(h).strip() for h in header_row]
+
+        # Map header → canonical COLS
+        hdr_map = {}   # canonical_col → column_index
+        for idx, h in enumerate(header):
+            h_l = h.lower()
+            if h_l in cols_lower:
+                hdr_map[cols_lower[h_l]] = idx
+
+        if "brand" not in hdr_map or "Medium" not in hdr_map:
+            print(f"    skip sheet '{title}': missing columns (found: {list(hdr_map.keys())[:6]})")
+            continue
+
+        brand_idx  = hdr_map["brand"]
+        sheet_rows = 0
+        for data_row in values[1:]:
+            # Pad row to at least brand column width
+            if len(data_row) <= brand_idx:
+                continue
+            brand = str(data_row[brand_idx]).strip()
+            if not brand or brand.lower() not in VALID_BRANDS:
+                continue
+            row = {}
+            for col, idx in hdr_map.items():
+                row[col] = str(data_row[idx]).strip() if idx < len(data_row) else ""
+            # Normalize brand name in stored row
+            row["brand"] = BRAND_NORMALIZE.get(row["brand"].lower(), row["brand"])
+            rows.append(row)
+            sheet_rows += 1
+
+        if sheet_rows:
+            print(f"    sheet '{title}': {sheet_rows:,} rows")
+
+    return rows
 
 
 # ── Parsing ──────────────────────────────────────────────────────────────────
@@ -185,7 +319,15 @@ def parse_zip_rows(zip_buf, file_name):
     cols_lower = {c.lower(): c for c in COLS}
 
     with zipfile.ZipFile(zip_buf) as zf:
-        for member in sorted(zf.namelist()):
+        members = sorted(zf.namelist())
+        # If Google returned HTML instead of CSV (happens with some older/large files),
+        # fall back to Sheets API rather than trying to parse HTML as CSV.
+        has_csv  = any(m.lower().endswith(".csv")  for m in members)
+        has_html = any(m.lower().endswith(".html") for m in members)
+        if has_html and not has_csv:
+            raise FileTooLargeError(f"ZIP contains HTML not CSV — needs Sheets API fallback")
+
+        for member in members:
             # Google exports as "filename - SheetName.csv"
             sheet_label = member
             if sheet_label.lower().endswith(".csv"):
@@ -227,6 +369,8 @@ def parse_zip_rows(zip_buf, file_name):
                 row = {}
                 for col, fn in hdr_map.items():
                     row[col] = str(raw_row.get(fn, "") or "").strip()
+                # Normalize brand name
+                row["brand"] = BRAND_NORMALIZE.get(row["brand"].lower(), row["brand"])
                 rows.append(row)
                 sheet_rows += 1
 
@@ -304,6 +448,7 @@ def build_aggregations(all_rows):
 
     for r in all_rows:
         brand   = str(r.get("brand",  "") or "").strip()
+        brand   = BRAND_NORMALIZE.get(brand.lower(), brand)   # normalize "Ampere"→"Ampere Electric" etc.
         medium  = str(r.get("Medium", "") or "").strip() or "Unknown"
         state   = str(r.get("State",  "") or "").strip() or "Unknown"
         city    = str(r.get("City",   "") or "").strip() or "Unknown"
@@ -403,11 +548,11 @@ def main():
         print(f"Loaded {len(all_rows):,} existing leads from {LEADS_F}")
 
     # Auth
-    print("Authenticating with Google Drive...")
-    service = get_drive_service()
+    print("Authenticating with Google Drive + Sheets...")
+    drive_svc, sheets_svc = get_services()
 
     # List files
-    files = list_folder_sheets(service)
+    files = list_folder_sheets(drive_svc)
     print(f"Found {len(files)} Sheets files in Drive folder")
 
     new_file_count = 0
@@ -425,8 +570,15 @@ def main():
 
         print(f"  ↓ processing: {name}  (modified {mtime[:10]})")
         try:
-            zip_buf = export_as_zip(service, fid)
+            zip_buf = export_as_zip(drive_svc, fid)
             new_rows = parse_zip_rows(zip_buf, name)
+        except FileTooLargeError:
+            print(f"    File too large for ZIP export — using Sheets API v4 fallback…")
+            try:
+                new_rows = export_via_sheets_api(sheets_svc, fid, name)
+            except Exception as e2:
+                print(f"    ERROR (Sheets API fallback) for {name}: {e2}")
+                continue
         except Exception as e:
             print(f"    ERROR exporting {name}: {e}")
             continue
@@ -451,7 +603,7 @@ def main():
         new_row_count += len(new_rows)
         print(f"    → {len(new_rows):,} rows added")
 
-    if new_file_count == 0:
+    if new_file_count == 0 and new_row_count == 0:
         print("\nNo new or modified files — dashboard is already up to date.")
         # Still update last_run timestamp
         manifest["last_run"] = datetime.now(timezone.utc).isoformat()
