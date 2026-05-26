@@ -400,15 +400,13 @@ def deduplicate(rows):
 # ── Aggregation ───────────────────────────────────────────────────────────────
 
 def norm_lt(raw):
-    v = str(raw).strip().rstrip(".0") if raw else ""
-    if v.endswith(".0"):
-        v = v[:-2]
-    # Strip trailing .0 once more robustly
+    v = str(raw).strip() if raw else ""
+    # Strip trailing .0 (e.g. "1105.0" → "1105")
     try:
         v = str(int(float(v))) if v else v
     except Exception:
         pass
-    return LT_NAMES.get(v, v) if v else "Unknown"
+    return v if v else "Unknown"
 
 
 def build_aggregations(all_rows):
