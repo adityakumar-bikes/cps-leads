@@ -20,7 +20,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Use a PAT so the push can trigger GitHub Pages rebuild
           token: ${{ secrets.GITHUB_TOKEN }}
 
       # 2. Set up Python
@@ -34,18 +33,30 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # 4. Run the data pipeline
+      # 4. Restore cached data (all_leads.json.gz + manifest.json)
+      #    Key changes whenever manifest.json is committed (i.e. after each run).
+      #    Falls back to any prior cps-leads- cache on first run or cache miss.
+      - name: Restore data cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/all_leads.json.gz
+          key: cps-leads-${{ hashFiles('data/manifest.json') }}
+          restore-keys: |
+            cps-leads-
+
+      # 5. Run the data pipeline
       - name: Refresh CPS data
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: python scripts/refresh_data.py
 
-      # 5. Commit & push updated data files (only if anything changed)
+      # 6. Commit & push updated files — NOT all_leads.json.gz (that lives in cache)
       - name: Commit updated data
         run: |
           git config user.name  "CPS Bot"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/dashboard_data.json data/manifest.json data/all_leads.json.gz index.html
+          git add data/dashboard_data.json data/manifest.json index.html
           if git diff --staged --quiet; then
             echo "No data changes — nothing to commit."
           else

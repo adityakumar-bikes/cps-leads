@@ -12,3 +12,6 @@ venv/
 
 # macOS
 .DS_Store
+
+# Large leads cache — stored in GitHub Actions cache, not the repo
+data/all_leads.json.gz
