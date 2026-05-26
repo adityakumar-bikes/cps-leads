@@ -5,71 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Bike CPS Lead Delivery Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js">
-// ── GitHub config for Refresh button ─────────────────────────────────────────
-// Fill in these three values to enable the in-page Refresh button.
-// GH_PAT: a fine-grained Personal Access Token with "Actions: Read & Write"
-// on this specific repo (GitHub → Settings → Developer settings → Fine-grained tokens)
-const GH_OWNER    = 'adityakumar-bikes';          // e.g. 'myusername'
-const GH_REPO     = 'cps-leads';          // e.g. 'cps-lead-dashboard'
-const GH_PAT      = '';          // paste your PAT here
-const GH_WORKFLOW = 'refresh.yml';
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function triggerRefresh(){
-  const btn=document.getElementById('refresh-btn');
-  const lbl=document.getElementById('rbtn-lbl');
-  if(!GH_OWNER||!GH_REPO){
-    alert('GH_OWNER or GH_REPO not set in index.html.');
-    return;
-  }
-  // PAT lives in localStorage — never in source code
-  let pat=localStorage.getItem('cps_gh_pat');
-  if(!pat){
-    pat=prompt('Enter your GitHub PAT (needs "workflow" scope):\ngithub.com/settings/tokens');
-    if(!pat) return;
-    localStorage.setItem('cps_gh_pat',pat);
-  }
-  btn.classList.add('running'); lbl.textContent='Triggering…';
-  try{
-    // 1. Dispatch workflow_dispatch event
-    const trig=await fetch(
-      `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/actions/workflows/${GH_WORKFLOW}/dispatches`,
-      {method:'POST',
-       headers:{'Authorization':'token '+pat,'Accept':'application/vnd.github+json','Content-Type':'application/json'},
-       body:JSON.stringify({ref:'main'})});
-    if(trig.status!==204) throw new Error('Trigger failed (HTTP '+trig.status+')');
-    lbl.textContent='Running…';
-    // 2. Poll for the run to complete (max 10 min)
-    await new Promise(r=>setTimeout(r,6000));
-    let done=false,ok=false,elapsed=6;
-    while(elapsed<600){
-      await new Promise(r=>setTimeout(r,12000)); elapsed+=12;
-      const runs=await fetch(
-        `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/actions/runs?workflow_id=${GH_WORKFLOW}&per_page=1`,
-        {headers:{'Authorization':'token '+pat,'Accept':'application/vnd.github+json'}});
-      const data=await runs.json();
-      const run=data.workflow_runs?.[0];
-      if(run&&run.status==='completed'){done=true;ok=(run.conclusion==='success');break;}
-      lbl.textContent='Running… ('+elapsed+'s)';
-    }
-    if(done&&ok){
-      lbl.textContent='Reloading…';
-      const loaded=await loadData();
-      if(loaded){renderAll();}
-      lbl.textContent='Done ✓';
-      setTimeout(()=>lbl.textContent='Refresh Data',3000);
-    }else if(done){
-      alert('Workflow finished but reported a failure. Check the Actions tab on GitHub.');
-    }else{
-      alert('Workflow is still running after 10 minutes. Reload the page when it finishes.');
-    }
-  }catch(e){
-    alert('Refresh error: '+e.message);
-    lbl.textContent='Refresh Data';
-  }finally{
-    btn.classList.remove('running');
-  }
-}
 </script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 <style>
@@ -143,11 +78,6 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .spinner{width:38px;height:38px;border:3px solid var(--border);border-top-color:var(--hl);border-radius:50%;animation:spin 1s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg);}}
 .load-msg{color:var(--muted);font-size:.88rem;}
-.rbtn{display:flex;align-items:center;gap:7px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:7px 14px;font-size:.8rem;cursor:pointer;transition:all .2s;white-space:nowrap;}
-.rbtn:hover{border-color:var(--hl);color:var(--txt);}
-.rbtn.running{border-color:#F7DC6F;color:#F7DC6F;cursor:wait;}
-.rbtn svg{width:14px;height:14px;flex-shrink:0;}
-.rbtn.running svg{animation:spin .8s linear infinite;}
 .upd-lbl{font-size:.72rem;color:var(--muted);}
 </style>
 </head>
@@ -156,13 +86,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 <div class="hdr">
   <div><h1>Bike <span>CPS</span> Lead Delivery Dashboard</h1>
     <div class="hdr-sub">BikeDekho CPS Master Files &bull; Apr 2025 – Apr 2026</div></div>
-  <div style="display:flex;align-items:center;gap:14px;">
-    <div class="hdr-meta" id="hdr-meta"></div>
-    <button class="rbtn" id="refresh-btn" onclick="triggerRefresh()" title="Pull latest files from Google Drive">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
-      <span id="rbtn-lbl">Refresh Data</span>
-    </button>
-  </div>
+  <div class="hdr-meta" id="hdr-meta"></div>
 </div>
 <div class="notice">
   ⚠️ <strong>Partial Data:</strong> Bajaj, KTM, Triumph, Husqvarna &amp; Ola Electric figures are based on available records only (source files exceed export limits). EV brand data (Ather, BGauss, Ampere, Vespa, Aprilia) is complete.
