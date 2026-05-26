@@ -18,9 +18,16 @@ const GH_WORKFLOW = 'refresh.yml';
 async function triggerRefresh(){
   const btn=document.getElementById('refresh-btn');
   const lbl=document.getElementById('rbtn-lbl');
-  if(!GH_OWNER||!GH_REPO||!GH_PAT){
-    alert('Refresh not configured.\n\nOpen index.html, scroll to the GitHub config section inside <script>, and fill in GH_OWNER, GH_REPO, and GH_PAT.');
+  if(!GH_OWNER||!GH_REPO){
+    alert('GH_OWNER or GH_REPO not set in index.html.');
     return;
+  }
+  // PAT lives in localStorage — never in source code
+  let pat=localStorage.getItem('cps_gh_pat');
+  if(!pat){
+    pat=prompt('Enter your GitHub PAT (needs "workflow" scope):\ngithub.com/settings/tokens');
+    if(!pat) return;
+    localStorage.setItem('cps_gh_pat',pat);
   }
   btn.classList.add('running'); lbl.textContent='Triggering…';
   try{
@@ -28,7 +35,7 @@ async function triggerRefresh(){
     const trig=await fetch(
       `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/actions/workflows/${GH_WORKFLOW}/dispatches`,
       {method:'POST',
-       headers:{'Authorization':'token '+GH_PAT,'Accept':'application/vnd.github+json','Content-Type':'application/json'},
+       headers:{'Authorization':'token '+pat,'Accept':'application/vnd.github+json','Content-Type':'application/json'},
        body:JSON.stringify({ref:'main'})});
     if(trig.status!==204) throw new Error('Trigger failed (HTTP '+trig.status+')');
     lbl.textContent='Running…';
@@ -39,7 +46,7 @@ async function triggerRefresh(){
       await new Promise(r=>setTimeout(r,12000)); elapsed+=12;
       const runs=await fetch(
         `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/actions/runs?workflow_id=${GH_WORKFLOW}&per_page=1`,
-        {headers:{'Authorization':'token '+GH_PAT,'Accept':'application/vnd.github+json'}});
+        {headers:{'Authorization':'token '+pat,'Accept':'application/vnd.github+json'}});
       const data=await runs.json();
       const run=data.workflow_runs?.[0];
       if(run&&run.status==='completed'){done=true;ok=(run.conclusion==='success');break;}
