@@ -348,9 +348,9 @@ function renderOverview(){
 function renderBrand(){
   const bt=filteredBrandTotals();const bE=Object.entries(bt).sort((a,b)=>b[1]-a[1]);
   mkChart('ch-brand2','bar',bE.map(e=>e[0]),[{data:bE.map(e=>e[1]),backgroundColor:col(bE.map(e=>e[0]),BCOL,'#6C63FF'),borderRadius:4}],hBarOpts());
-  mkChart('ch-brand-med','bar',bE.map(e=>e[0]),D.mediums_all.map(m=>{return{label:m,data:bE.map(([b])=>D.brand_medium[b]?.[m]||0),backgroundColor:MCOL[m]||'#8b949e'}};),stackedOpts());
+  mkChart('ch-brand-med','bar',bE.map(e=>e[0]),D.mediums_all.map(m=>{return{label:m,data:bE.map(([b])=>D.brand_medium[b]?.[m]||0),backgroundColor:MCOL[m]||'#8b949e'}}),stackedOpts());
   const topLts=topN(D.by_lt,6).map(e=>e[0]);
-  mkChart('ch-brand-lt','bar',bE.map(e=>e[0]),topLts.map(lt=>{return{label:lt,data:bE.map(([b])=>D.brand_lt[b]?.[lt]||0),backgroundColor:LTCOL[lt]||'#8b949e'}};),stackedOpts());
+  mkChart('ch-brand-lt','bar',bE.map(e=>e[0]),topLts.map(lt=>{return{label:lt,data:bE.map(([b])=>D.brand_lt[b]?.[lt]||0),backgroundColor:LTCOL[lt]||'#8b949e'}}),stackedOpts());
   const total=Object.values(bt).reduce((a,c)=>a+c,0);
   let html=`<table class="tbl"><thead><tr><th>#</th><th>Brand</th><th>Total</th><th>Share</th>${D.mediums_all.map(m=>`<th>${m}</th>`).join('')}</tr></thead><tbody>`;
   bE.forEach(([b,cnt],i)=>{
@@ -363,20 +363,20 @@ function renderBrand(){
 function renderSource(){
   const mt=filteredMediumTotals();const mE=Object.entries(mt).sort((a,b)=>b[1]-a[1]);
   mkChart('ch-med2','doughnut',mE.map(e=>e[0]),[{data:mE.map(e=>e[1]),backgroundColor:col(mE.map(e=>e[0]),MCOL,'#8b949e'),borderWidth:2,borderColor:'#1c2330'}],pieOpts());
-  mkChart('ch-med-brand','bar',mE.map(e=>e[0]),D.brands_all.map(b=>{return{label:b,data:mE.map(([m])=>D.brand_medium[b]?.[m]||0),backgroundColor:BCOL[b]||'#8b949e'}};),stackedOpts());
+  mkChart('ch-med-brand','bar',mE.map(e=>e[0]),D.brands_all.map(b=>{return{label:b,data:mE.map(([m])=>D.brand_medium[b]?.[m]||0),backgroundColor:BCOL[b]||'#8b949e'}}),stackedOpts());
   const months=D.months_present;
   const o=baseOpts();o.plugins.legend=legendOpts;
-  mkChart('ch-med-trend','line',months,D.mediums_all.map(m=>{return{label:m,data:months.map(mo=>D.medium_month[m]?.[mo]||0),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3}};),o);
+  mkChart('ch-med-trend','line',months,D.mediums_all.map(m=>{return{label:m,data:months.map(mo=>D.medium_month[m]?.[mo]||0),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3}}),o);
   const topLts=topN(D.by_lt,8).map(e=>e[0]);
-  mkChart('ch-med-lt','bar',D.mediums_all,topLts.map(lt=>{return{label:lt,data:D.mediums_all.map(m=>D.lt_medium[lt]?.[m]||0),backgroundColor:LTCOL[lt]||'#8b949e'}};),stackedOpts());
+  mkChart('ch-med-lt','bar',D.mediums_all,topLts.map(lt=>{return{label:lt,data:D.mediums_all.map(m=>D.lt_medium[lt]?.[m]||0),backgroundColor:LTCOL[lt]||'#8b949e'}}),stackedOpts());
 }
 function renderLeadType(){
   const ltE=Object.entries(D.by_lt).sort((a,b)=>b[1]-a[1]);const total=D.total;
   mkChart('ch-lt2','bar',ltE.map(e=>e[0]),[{data:ltE.map(e=>e[1]),backgroundColor:col(ltE.map(e=>e[0]),LTCOL,'#6C63FF'),borderRadius:4}],hBarOpts());
-  mkChart('ch-lt-med','bar',ltE.map(e=>e[0]),D.mediums_all.map(m=>{return{label:m,data:ltE.map(([lt])=>D.lt_medium[lt]?.[m]||0),backgroundColor:MCOL[m]||'#8b949e'}};),stackedOpts());
+  mkChart('ch-lt-med','bar',ltE.map(e=>e[0]),D.mediums_all.map(m=>{return{label:m,data:ltE.map(([lt])=>D.lt_medium[lt]?.[m]||0),backgroundColor:MCOL[m]||'#8b949e'}}),stackedOpts());
   const top5lt=ltE.slice(0,5).map(e=>e[0]);const months=D.months_present;
   const o=baseOpts();o.plugins.legend=legendOpts;
-  mkChart('ch-lt-trend','line',months,top5lt.map(lt=>{return{label:lt,data:months.map(m=>D.lt_month[lt]?.[m]||0),borderColor:LTCOL[lt]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3}};),o);
+  mkChart('ch-lt-trend','line',months,top5lt.map(lt=>{return{label:lt,data:months.map(m=>D.lt_month[lt]?.[m]||0),borderColor:LTCOL[lt]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3}}),o);
   let html=`<table class="tbl"><thead><tr><th>#</th><th>Lead Type</th><th>Total</th><th>Share</th>${D.mediums_all.map(m=>`<th>${m}</th>`).join('')}</tr></thead><tbody>`;
   ltE.forEach(([lt,cnt],i)=>{const bw=Math.round(cnt/total*100);html+=`<tr><td style="color:var(--muted)">${i+1}</td><td><strong>${lt}</strong></td><td class="num">${fmtN(cnt)}</td><td><div>${pct(cnt,total)}</div><div class="bar" style="width:${bw}%;background:${LTCOL[lt]||'var(--hl)'}"></div></td>${D.mediums_all.map(m=>`<td class="num">${fmtN(D.lt_medium[lt]?.[m]||0)}</td>`).join('')}</tr>`;
   });html+='</tbody></table>';document.getElementById('tbl-lt-wrap').innerHTML=html;
@@ -385,9 +385,9 @@ function renderGeo(){
   const st15=topN(D.by_state,15);
   mkChart('ch-st-bar','bar',st15.map(e=>e[0]),[{data:st15.map(e=>e[1]),backgroundColor:'rgba(69,183,209,.75)',borderRadius:4}],hBarOpts());
   const o1=stackedOpts();o1.indexAxis='y';
-  mkChart('ch-st-brand','bar',st15.map(e=>e[0]),D.brands_all.map(b=>{return{label:b,data:st15.map(([s])=>D.state_brand[s]?.[b]||0),backgroundColor:BCOL[b]||'#8b949e'}};),o1);
+  mkChart('ch-st-brand','bar',st15.map(e=>e[0]),D.brands_all.map(b=>{return{label:b,data:st15.map(([s])=>D.state_brand[s]?.[b]||0),backgroundColor:BCOL[b]||'#8b949e'}}),o1);
   const o2=stackedOpts();o2.indexAxis='y';
-  mkChart('ch-st-med','bar',st15.map(e=>e[0]),D.mediums_all.map(m=>{return{label:m,data:st15.map(([s])=>D.state_medium[s]?.[m]||0),backgroundColor:MCOL[m]||'#8b949e'}};),o2);
+  mkChart('ch-st-med','bar',st15.map(e=>e[0]),D.mediums_all.map(m=>{return{label:m,data:st15.map(([s])=>D.state_medium[s]?.[m]||0),backgroundColor:MCOL[m]||'#8b949e'}}),o2);
   const ct15=topN(D.by_city,15);
   mkChart('ch-city2','bar',ct15.map(e=>e[0]),[{data:ct15.map(e=>e[1]),backgroundColor:'rgba(78,205,196,.75)',borderRadius:4}],hBarOpts());
   renderGeoTable();
@@ -441,7 +441,7 @@ function renderModel(){
   const top15=topN(D.by_model,15);
   mkChart('ch-model-bar','bar',top15.map(e=>e[0]),[{data:top15.map(e=>e[1]),backgroundColor:'rgba(255,160,122,.75)',borderRadius:4}],hBarOpts());
   const o=stackedOpts();o.indexAxis='y';
-  mkChart('ch-model-brand','bar',top15.map(e=>e[0]),D.brands_all.map(b=>{return{label:b,data:top15.map(([m])=>D.model_brand[m]?.[b]||0),backgroundColor:BCOL[b]||'#8b949e'}};),o);
+  mkChart('ch-model-brand','bar',top15.map(e=>e[0]),D.brands_all.map(b=>{return{label:b,data:top15.map(([m])=>D.model_brand[m]?.[b]||0),backgroundColor:BCOL[b]||'#8b949e'}}),o);
   renderModelTable();
 }
 function getMdlRows(){const q=(document.getElementById('model-srch')?.value||'').toLowerCase();
@@ -465,12 +465,12 @@ function renderMdlPage(){
 function renderTrend(){
   const months=D.months_present;
   mkChart('ch-trend2','line',months,[{data:months.map(m=>D.by_month[m]||0),borderColor:'#e94560',backgroundColor:'rgba(233,69,96,.1)',fill:true,tension:.4,pointRadius:4}],baseOpts());
-  mkChart('ch-bm-stack','bar',months,D.brands_all.map(b=>{return{label:b,data:months.map(m=>D.brand_month[b]?.[m]||0),backgroundColor:BCOL[b]||'#8b949e'}};),stackedOpts());
+  mkChart('ch-bm-stack','bar',months,D.brands_all.map(b=>{return{label:b,data:months.map(m=>D.brand_month[b]?.[m]||0),backgroundColor:BCOL[b]||'#8b949e'}}),stackedOpts());
   const o1=baseOpts();o1.plugins.legend=legendOpts;
-  mkChart('ch-med-trend2','line',months,D.mediums_all.map(m=>{return{label:m,data:months.map(mo=>D.medium_month[m]?.[mo]||0),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3}};),o1);
+  mkChart('ch-med-trend2','line',months,D.mediums_all.map(m=>{return{label:m,data:months.map(mo=>D.medium_month[m]?.[mo]||0),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3}}),o1);
   const top5lt=Object.entries(D.by_lt).sort((a,b)=>b[1]-a[1]).slice(0,5).map(e=>e[0]);
   const o2=baseOpts();o2.plugins.legend=legendOpts;
-  mkChart('ch-lt-trend2','line',months,top5lt.map(lt=>{return{label:lt,data:months.map(m=>D.lt_month[lt]?.[m]||0),borderColor:LTCOL[lt]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3}};),o2);
+  mkChart('ch-lt-trend2','line',months,top5lt.map(lt=>{return{label:lt,data:months.map(m=>D.lt_month[lt]?.[m]||0),borderColor:LTCOL[lt]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3}}),o2);
 }
 </script>
 </body>
