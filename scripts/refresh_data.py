@@ -678,12 +678,15 @@ def main():
         print(f"    → {len(new_rows):,} rows added")
 
     if new_file_count == 0 and new_row_count == 0:
-        print("\nNo new or modified files — dashboard is already up to date.")
-        # Still update last_run timestamp
-        manifest["last_run"] = datetime.now(timezone.utc).isoformat()
-        with open(MANIFEST_F, "w") as f:
-            json.dump(manifest, f, indent=2)
-        return
+        print("\nNo new Drive files — rebuilding aggregations from cached leads.")
+        if not all_rows:
+            print("No cached leads found either — nothing to do.")
+            manifest["last_run"] = datetime.now(timezone.utc).isoformat()
+            with open(MANIFEST_F, "w") as f:
+                json.dump(manifest, f, indent=2)
+            return
+        # Fall through to rebuild aggregations + update index.html even with no new data
+        # (catches code changes to aggregation logic, new mapping files, etc.)
 
     # Deduplicate full dataset
     print(f"\nDeduplicating {len(all_rows):,} total rows...")
