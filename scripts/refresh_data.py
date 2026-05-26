@@ -534,20 +534,18 @@ def build_aggregations(all_rows, model_to_bu=None):
         inc(lt_month[lt],         month)
         inc(model_brand[model],   brand)
 
-        # BU aggregations (only for models present in the mapping)
-        if model_to_bu:
-            bu = model_to_bu.get(model.lower(), "")
-            if bu:
-                inc(by_bu,          bu)
-                inc(bu_brand[bu],   brand)
-                inc(bu_medium[bu],  medium)
-                inc(bu_month[bu],   month)
-                inc(bu_state[bu],   state)
-                inc(bu_city[bu],    city)
-                inc(bu_dealer[bu],  dealer)
-                inc(bu_lt[bu],      lt)
-                inc(bu_model[bu],   model)
-                model_bu_map[model] = bu
+        # BU aggregations — mapped models use the xlsx BU, all others fall back to brand
+        bu = model_to_bu.get(model.lower(), brand) if model_to_bu else brand
+        inc(by_bu,          bu)
+        inc(bu_brand[bu],   brand)
+        inc(bu_medium[bu],  medium)
+        inc(bu_month[bu],   month)
+        inc(bu_state[bu],   state)
+        inc(bu_city[bu],    city)
+        inc(bu_dealer[bu],  dealer)
+        inc(bu_lt[bu],      lt)
+        inc(bu_model[bu],   model)
+        model_bu_map[model] = bu
 
     # Sort months by canonical order
     month_key = {m: i for i, m in enumerate(MONTH_ORDER)}
