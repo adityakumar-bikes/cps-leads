@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Bike CPS Lead Delivery Dashboard</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<script src="js/chart.min.js"></script>
+<script src="js/chartjs-plugin-datalabels.min.js"></script>
 <style>
 :root{--bg:#0d1117;--bg2:#161b22;--bg3:#1c2330;--card:#1e2d3d;--border:#30363d;
        --hl:#e94560;--txt:#e6edf3;--muted:#8b949e;--hover:#253248;}
@@ -85,11 +85,11 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 </div>
 <div class="fbar">
   <div class="fg"><label>Brand</label>
-    <select id="f-brand"><option value="">All Brands</option></select></div>
+    <select id="f-brand" onchange="applyFilters()"><option value="">All Brands</option></select></div>
   <div class="fg"><label>Source</label>
-    <select id="f-medium"><option value="">All Sources</option></select></div>
+    <select id="f-medium" onchange="applyFilters()"><option value="">All Sources</option></select></div>
   <div class="fg"><label>Month</label>
-    <select id="f-month"><option value="">All Months</option></select></div>
+    <select id="f-month" onchange="applyFilters()"><option value="">All Months</option></select></div>
   <button class="fbtn" onclick="applyFilters()">Apply</button>
   <button class="freset" onclick="resetFilters()">Reset</button>
   <span id="filter-label" style="font-size:.78rem;color:var(--muted);margin-left:4px;"></span>
@@ -320,7 +320,10 @@ function switchTab(name,el){
   el.classList.add('active');document.getElementById('tc-'+name).classList.add('active');
   activeTab=name;renderTab(name);
 }
-function renderAll(){updateKPIs();renderTab(activeTab);}
+function renderAll(){
+  try{updateKPIs();}catch(e){console.error('updateKPIs failed:',e);}
+  try{renderTab(activeTab);}catch(e){console.error('renderTab failed:',e);}
+}
 function renderTab(name){
   if(name==='overview')renderOverview();
   else if(name==='brand')renderBrand();
