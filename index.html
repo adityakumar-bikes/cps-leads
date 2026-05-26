@@ -180,9 +180,11 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 </div></div>
 
 <div class="tc" id="tc-dealer"><div class="panel">
-  <div class="cbox"><div class="ctitle">All Dealers (1,377 dealers)</div>
-    <div class="srch-row">
-      <input class="srch" id="dealer-srch" placeholder="Search dealer name…" oninput="renderDealerTable()">
+  <div class="cbox"><div class="ctitle" id="dlr-title">All Dealers</div>
+    <div class="srch-row" style="flex-wrap:wrap;gap:8px">
+      <select id="dlr-state-f" onchange="onDlrStateChange()" style="background:var(--card);color:var(--txt);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:.82rem;cursor:pointer;outline:none"><option value="">All States</option></select>
+      <select id="dlr-city-f" onchange="renderDealerTable()" style="background:var(--card);color:var(--txt);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:.82rem;cursor:pointer;outline:none"><option value="">All Cities</option></select>
+      <input class="srch" id="dealer-srch" placeholder="Search dealer…" oninput="renderDealerTable()" style="width:180px">
       <span class="pg-info" id="dlr-pg-info"></span>
       <button class="pg-btn" id="dlr-prev" onclick="dlrPage(-1)">‹ Prev</button>
       <button class="pg-btn" id="dlr-next" onclick="dlrPage(1)">Next ›</button>
@@ -504,7 +506,10 @@ function renderStateTable(){
   let rows=Object.entries(stC).map(([n,cnt])=>[n,cnt,D.state_medium[n]||{}]).filter(([n])=>!q||n.toLowerCase().includes(q));
   rows=geoSortRows(rows,stSort,0,1,2,null);
   const total=Object.values(stC).reduce((a,c)=>a+c,0)||1;
+  const subTotal=rows.reduce((a,[,c])=>a+c,0);
+  const medSubs=Object.fromEntries(D.mediums_all.map(m=>[m,rows.reduce((a,[,,src])=>a+(src[m]||0),0)]));
   let html=`<table class="tbl"><thead><tr><th>#</th>${stHdr('name','State')}${stHdr('total','Total')}<th>Share</th>${D.mediums_all.map(m=>stHdr(m,m)).join('')}</tr></thead><tbody>`;
+  html+=`<tr style="background:rgba(108,99,255,.1);font-weight:700;border-bottom:2px solid var(--border)"><td style="color:var(--muted)">∑</td><td>Subtotal</td><td class="num">${fmtN(subTotal)}</td><td style="color:var(--muted)">${rows.length} states</td>${D.mediums_all.map(m=>`<td class="num">${fmtN(medSubs[m])}</td>`).join('')}</tr>`;
   rows.forEach(([name,cnt,src],i)=>{
     const bw=Math.round(cnt/total*100);
     html+=`<tr><td style="color:var(--muted)">${i+1}</td><td><strong>${name}</strong></td><td class="num">${fmtN(cnt)}</td><td><div>${pct(cnt,total)}</div><div class="bar" style="width:${bw}%"></div></td>${D.mediums_all.map(m=>`<td class="num">${fmtN(src[m]||0)}</td>`).join('')}</tr>`;
@@ -549,18 +554,67 @@ function getFilteredDealers(){
   }
   return res;
 }
-function renderDealer(){_dlrFiltered=getFilteredDealers();renderDealerTable();}
-function getDlrRows(){const q=(document.getElementById('dealer-srch')?.value||'').toLowerCase();
+function populateDlrFilters(dealers){
+  // Build state→cities map from current dealer set
+  const stateSet=new Set();const citiesByState={};
+  for(const d of Object.keys(dealers)){
+    const st=dlrState(d);const ct=dlrCity(d);
+    if(st){stateSet.add(st);if(!citiesByState[st])citiesByState[st]=new Set();if(ct)citiesByState[st].add(ct);}
+  }
+  const stSel=document.getElementById('dlr-state-f');
+  const prevSt=stSel.value;
+  stSel.innerHTML='<option value="">All States</option>';
+  [...stateSet].sort().forEach(st=>{const o=document.createElement('option');o.value=st;o.textContent=st;if(st===prevSt)o.selected=true;stSel.appendChild(o);});
+  if(prevSt&&!stateSet.has(prevSt))stSel.value='';
+  // Rebuild city filter for currently selected state
+  const curSt=stSel.value;
+  const ctSel=document.getElementById('dlr-city-f');
+  const prevCt=ctSel.value;
+  ctSel.innerHTML='<option value="">All Cities</option>';
+  const cities=curSt?(citiesByState[curSt]||new Set()):new Set(Object.values(citiesByState).flatMap(s=>[...s]));
+  [...cities].sort().forEach(ct=>{const o=document.createElement('option');o.value=ct;o.textContent=ct;if(ct===prevCt)o.selected=true;ctSel.appendChild(o);});
+  if(prevCt&&!cities.has(prevCt))ctSel.value='';
+}
+function onDlrStateChange(){
+  const state=document.getElementById('dlr-state-f').value;
+  const ctSel=document.getElementById('dlr-city-f');
+  const prevCt=ctSel.value;
+  ctSel.innerHTML='<option value="">All Cities</option>';
+  const cities=new Set();
+  for(const d of Object.keys(_dlrFiltered||D.by_dealer)){const st=dlrState(d);const ct=dlrCity(d);if((!state||st===state)&&ct)cities.add(ct);}
+  [...cities].sort().forEach(ct=>{const o=document.createElement('option');o.value=ct;o.textContent=ct;if(ct===prevCt)o.selected=true;ctSel.appendChild(o);});
+  if(prevCt&&!cities.has(prevCt))ctSel.value='';
+  renderDealerTable();
+}
+function renderDealer(){
+  _dlrFiltered=getFilteredDealers();
+  populateDlrFilters(_dlrFiltered);
+  renderDealerTable();
+}
+function getDlrRows(){
+  const q=(document.getElementById('dealer-srch')?.value||'').toLowerCase();
+  const stF=document.getElementById('dlr-state-f')?.value||'';
+  const ctF=document.getElementById('dlr-city-f')?.value||'';
   const src=_dlrFiltered||D.by_dealer;
-  return Object.entries(src).sort((a,b)=>b[1]-a[1]).filter(([n])=>!q||n.toLowerCase().includes(q));}
+  return Object.entries(src).sort((a,b)=>b[1]-a[1]).filter(([n])=>{
+    if(q&&!n.toLowerCase().includes(q))return false;
+    if(stF&&dlrState(n)!==stF)return false;
+    if(ctF&&dlrCity(n)!==ctF)return false;
+    return true;
+  });
+}
 function renderDealerTable(){dlrCurPage=0;renderDlrPage();}
 function dlrPage(d){dlrCurPage+=d;renderDlrPage();}
 function renderDlrPage(){
-  const rows=getDlrRows();const start=dlrCurPage*DLR_PG,end=Math.min(start+DLR_PG,rows.length);
+  const rows=getDlrRows();
+  const start=dlrCurPage*DLR_PG,end=Math.min(start+DLR_PG,rows.length);
   document.getElementById('dlr-pg-info').textContent=`${start+1}–${end} of ${rows.length.toLocaleString()}`;
   document.getElementById('dlr-prev').disabled=dlrCurPage===0;
   document.getElementById('dlr-next').disabled=end>=rows.length;
+  document.getElementById('dlr-title').textContent=`All Dealers (${rows.length.toLocaleString()} dealers)`;
+  const subTotal=rows.reduce((s,[,c])=>s+c,0);
   let html=`<table class="tbl"><thead><tr><th>#</th><th>Dealer</th><th>City</th><th>State</th><th>Total</th></tr></thead><tbody>`;
+  html+=`<tr style="background:rgba(108,99,255,.1);font-weight:700;border-bottom:2px solid var(--border)"><td style="color:var(--muted)">∑</td><td>Subtotal</td><td style="color:var(--muted)">${rows.length.toLocaleString()} dealers</td><td>—</td><td class="num">${fmtN(subTotal)}</td></tr>`;
   rows.slice(start,end).forEach(([name,cnt],i)=>{
     const city=dlrCity(name);const state=dlrState(name);
     html+=`<tr><td style="color:var(--muted)">${start+i+1}</td><td><strong>${name}</strong></td><td>${city||'—'}</td><td style="color:var(--muted)">${state||'—'}</td><td class="num">${fmtN(cnt)}</td></tr>`;
