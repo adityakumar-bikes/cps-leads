@@ -1,0 +1,55 @@
+name: Refresh CPS Lead Data
+
+on:
+  # ── Manual trigger (the "Refresh" button calls this) ──────────────────────
+  workflow_dispatch:
+
+  # ── Automatic: runs every day at 6:00 AM IST (00:30 UTC) ─────────────────
+  schedule:
+    - cron: "30 0 * * *"
+
+permissions:
+  contents: write   # needed to commit updated data files back to the repo
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Check out the repo
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Use a PAT so the push can trigger GitHub Pages rebuild
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 2. Set up Python
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # 3. Install dependencies
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # 4. Run the data pipeline
+      - name: Refresh CPS data
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: python scripts/refresh_data.py
+
+      # 5. Commit & push updated data files (only if anything changed)
+      - name: Commit updated data
+        run: |
+          git config user.name  "CPS Bot"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/dashboard_data.json data/manifest.json data/all_leads.json.gz
+          if git diff --staged --quiet; then
+            echo "No data changes — nothing to commit."
+          else
+            git commit -m "data: refresh CPS leads $(date -u '+%Y-%m-%d %H:%M UTC')"
+            git push
+            echo "✅ Data committed and pushed."
+          fi
