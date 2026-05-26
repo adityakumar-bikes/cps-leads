@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bike CPS Lead Delivery Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js">
+// ── GitHub config for Refresh button ─────────────────────────────────────────
+// Fill in these three values to enable the in-page Refresh button.
+// GH_PAT: a fine-grained Personal Access Token with "Actions: Read & Write"
+// on this specific repo (GitHub → Settings → Developer settings → Fine-grained tokens)
+const GH_OWNER    = 'adityakumar-bikes';          // e.g. 'myusername'
+const GH_REPO     = 'cps-leads';          // e.g. 'cps-lead-dashboard'
+const GH_PAT      = '';          // paste your PAT here
+const GH_WORKFLOW = 'refresh.yml';
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function triggerRefresh(){
+  const btn=document.getElementById('refresh-btn');
+  const lbl=document.getElementById('rbtn-lbl');
+  if(!GH_OWNER||!GH_REPO||!GH_PAT){
+    alert('Refresh not configured.\n\nOpen index.html, scroll to the GitHub config section inside <script>, and fill in GH_OWNER, GH_REPO, and GH_PAT.');
+    return;
+  }
+  btn.classList.add('running'); lbl.textContent='Triggering…';
+  try{
+    // 1. Dispatch workflow_dispatch event
+    const trig=await fetch(
+      `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/actions/workflows/${GH_WORKFLOW}/dispatches`,
+      {method:'POST',
+       headers:{'Authorization':'token '+GH_PAT,'Accept':'application/vnd.github+json','Content-Type':'application/json'},
+       body:JSON.stringify({ref:'main'})});
+    if(trig.status!==204) throw new Error('Trigger failed (HTTP '+trig.status+')');
+    lbl.textContent='Running…';
+    // 2. Poll for the run to complete (max 10 min)
+    await new Promise(r=>setTimeout(r,6000));
+    let done=false,ok=false,elapsed=6;
+    while(elapsed<600){
+      await new Promise(r=>setTimeout(r,12000)); elapsed+=12;
+      const runs=await fetch(
+        `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/actions/runs?workflow_id=${GH_WORKFLOW}&per_page=1`,
+        {headers:{'Authorization':'token '+GH_PAT,'Accept':'application/vnd.github+json'}});
+      const data=await runs.json();
+      const run=data.workflow_runs?.[0];
+      if(run&&run.status==='completed'){done=true;ok=(run.conclusion==='success');break;}
+      lbl.textContent='Running… ('+elapsed+'s)';
+    }
+    if(done&&ok){
+      lbl.textContent='Reloading…';
+      const loaded=await loadData();
+      if(loaded){renderAll();}
+      lbl.textContent='Done ✓';
+      setTimeout(()=>lbl.textContent='Refresh Data',3000);
+    }else if(done){
+      alert('Workflow finished but reported a failure. Check the Actions tab on GitHub.');
+    }else{
+      alert('Workflow is still running after 10 minutes. Reload the page when it finishes.');
+    }
+  }catch(e){
+    alert('Refresh error: '+e.message);
+    lbl.textContent='Refresh Data';
+  }finally{
+    btn.classList.remove('running');
+  }
+}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<style>
+:root{--bg:#0d1117;--bg2:#161b22;--bg3:#1c2330;--card:#1e2d3d;--border:#30363d;
+       --hl:#e94560;--txt:#e6edf3;--muted:#8b949e;--hover:#253248;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--txt);min-height:100vh;}
+.hdr{background:linear-gradient(135deg,#0f3460,#0d1117);padding:18px 28px;display:flex;
+      justify-content:space-between;align-items:center;border-bottom:2px solid var(--hl);
+      box-shadow:0 2px 20px rgba(233,69,96,.25);}
+.hdr h1{font-size:1.5rem;font-weight:700;} .hdr h1 span{color:var(--hl);}
+.hdr-sub{font-size:.78rem;color:var(--muted);margin-top:4px;}
+.hdr-meta{text-align:right;font-size:.8rem;color:var(--muted);}
+/* Data notice banner */
+.notice{background:rgba(247,220,111,.08);border:1px solid rgba(247,220,111,.3);
+         border-left:3px solid #F7DC6F;padding:9px 28px;font-size:.78rem;color:#c9b14a;
+         display:flex;align-items:center;gap:8px;}
+.notice strong{color:#F7DC6F;}
+/* Filters */
+.fbar{background:var(--bg2);padding:12px 28px;display:flex;gap:12px;flex-wrap:wrap;
+       align-items:center;border-bottom:1px solid var(--border);}
+.fg{display:flex;align-items:center;gap:6px;}
+.fg label{font-size:.75rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;}
+.fg select{background:var(--card);color:var(--txt);border:1px solid var(--border);border-radius:6px;
+            padding:5px 10px;font-size:.82rem;cursor:pointer;outline:none;}
+.fg select:focus{border-color:var(--hl);}
+.fbtn{background:var(--hl);color:#fff;border:none;border-radius:6px;padding:6px 14px;
+       font-size:.82rem;font-weight:600;cursor:pointer;transition:opacity .2s;}
+.fbtn:hover{opacity:.85;} .freset{background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:6px 14px;font-size:.82rem;cursor:pointer;}
+.freset:hover{border-color:var(--hl);color:var(--txt);}
+/* KPI */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;padding:22px 28px 0;}
+.kpi{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px;
+      position:relative;overflow:hidden;transition:transform .2s,box-shadow .2s;}
+.kpi:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,.35);}
+.kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--hl);}
+.kpi.c1::before{background:#27AE60;} .kpi.c2::before{background:#3498DB;}
+.kpi.c3::before{background:#1877F2;} .kpi.c4::before{background:#E67E22;}
+.kpi.c5::before{background:#6C63FF;}
+.kpi-lbl{font-size:.72rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;}
+.kpi-val{font-size:1.9rem;font-weight:800;line-height:1;}
+.kpi-val.xl{font-size:2.3rem;} .kpi-sub{font-size:.72rem;color:var(--muted);margin-top:4px;}
+/* Tabs */
+.tabs{display:flex;gap:3px;padding:22px 28px 0;overflow-x:auto;}
+.tab{padding:9px 18px;border-radius:8px 8px 0 0;cursor:pointer;font-size:.82rem;font-weight:600;
+      color:var(--muted);border:1px solid transparent;border-bottom:none;transition:all .2s;white-space:nowrap;}
+.tab:hover{color:var(--txt);background:var(--hover);}
+.tab.active{color:var(--hl);background:var(--card);border-color:var(--border);}
+.tc{display:none;padding:0 28px 28px;} .tc.active{display:block;}
+.panel{background:var(--card);border:1px solid var(--border);border-radius:0 10px 10px 10px;padding:22px;}
+.crow{display:grid;gap:16px;margin-bottom:16px;}
+.crow.c2{grid-template-columns:1fr 1fr;} .crow.c3{grid-template-columns:1fr 1fr 1fr;}
+.crow.c1{grid-template-columns:1fr;}
+.cbox{background:var(--bg2);border-radius:8px;padding:18px;} .cbox.wide{grid-column:1/-1;}
+.ctitle{font-size:.78rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:14px;}
+.tbl{width:100%;border-collapse:collapse;font-size:.8rem;}
+.tbl th{background:var(--bg);color:var(--muted);padding:9px 11px;text-align:left;font-weight:600;text-transform:uppercase;letter-spacing:.4px;font-size:.72rem;border-bottom:2px solid var(--border);}
+.tbl td{padding:8px 11px;border-bottom:1px solid var(--border);color:var(--txt);}
+.tbl tr:hover td{background:var(--hover);} .tbl td.num{text-align:right;font-variant-numeric:tabular-nums;}
+.bar{height:5px;border-radius:3px;margin-top:3px;background:var(--hl);}
+.badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:.7rem;font-weight:600;}
+.partial-badge{display:inline-block;padding:1px 5px;border-radius:8px;font-size:.65rem;font-weight:600;background:rgba(247,220,111,.15);color:#c9b14a;border:1px solid rgba(247,220,111,.25);margin-left:4px;}
+.srch-row{display:flex;gap:10px;margin-bottom:14px;align-items:center;}
+.srch{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 12px;color:var(--txt);font-size:.82rem;outline:none;width:260px;}
+.srch:focus{border-color:var(--hl);} .pg-info{font-size:.78rem;color:var(--muted);margin-left:auto;}
+.pg-btn{background:var(--bg);border:1px solid var(--border);color:var(--txt);border-radius:5px;padding:5px 10px;font-size:.78rem;cursor:pointer;}
+.pg-btn:hover{border-color:var(--hl);} .pg-btn:disabled{opacity:.4;cursor:not-allowed;}
+@media(max-width:860px){.crow.c2,.crow.c3{grid-template-columns:1fr;}}
+/* Loading overlay */
+#load-ov{position:fixed;inset:0;background:rgba(13,17,23,.92);display:flex;align-items:center;justify-content:center;z-index:9999;flex-direction:column;gap:16px;}
+.spinner{width:38px;height:38px;border:3px solid var(--border);border-top-color:var(--hl);border-radius:50%;animation:spin 1s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.load-msg{color:var(--muted);font-size:.88rem;}
+.rbtn{display:flex;align-items:center;gap:7px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:7px 14px;font-size:.8rem;cursor:pointer;transition:all .2s;white-space:nowrap;}
+.rbtn:hover{border-color:var(--hl);color:var(--txt);}
+.rbtn.running{border-color:#F7DC6F;color:#F7DC6F;cursor:wait;}
+.rbtn svg{width:14px;height:14px;flex-shrink:0;}
+.rbtn.running svg{animation:spin .8s linear infinite;}
+.upd-lbl{font-size:.72rem;color:var(--muted);}
+</style>
+</head>
+<body>
+<div id="load-ov"><div class="spinner"></div><div class="load-msg">Loading dashboard data…</div></div>
+<div class="hdr">
+  <div><h1>Bike <span>CPS</span> Lead Delivery Dashboard</h1>
+    <div class="hdr-sub">BikeDekho CPS Master Files &bull; Apr 2025 – Apr 2026</div></div>
+  <div style="display:flex;align-items:center;gap:14px;">
+    <div class="hdr-meta" id="hdr-meta"></div>
+    <button class="rbtn" id="refresh-btn" onclick="triggerRefresh()" title="Pull latest files from Google Drive">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+      <span id="rbtn-lbl">Refresh Data</span>
+    </button>
+  </div>
+</div>
+<div class="notice">
+  ⚠️ <strong>Partial Data:</strong> Bajaj, KTM, Triumph, Husqvarna &amp; Ola Electric figures are based on available records only (source files exceed export limits). EV brand data (Ather, BGauss, Ampere, Vespa, Aprilia) is complete.
+</div>
+<div class="fbar">
+  <div class="fg"><label>Brand</label>
+    <select id="f-brand"><option value="">All Brands</option></select></div>
+  <div class="fg"><label>Source</label>
+    <select id="f-medium"><option value="">All Sources</option></select></div>
+  <div class="fg"><label>Month</label>
+    <select id="f-month"><option value="">All Months</option></select></div>
+  <button class="fbtn" onclick="applyFilters()">Apply</button>
+  <button class="freset" onclick="resetFilters()">Reset</button>
+  <span id="filter-label" style="font-size:.78rem;color:var(--muted);margin-left:4px;"></span>
+</div>
+<div class="kpi-grid">
+  <div class="kpi"><div class="kpi-lbl">Total Leads</div>
+    <div class="kpi-val xl" id="kv-total">—</div><div class="kpi-sub" id="kv-sub">deduplicated</div></div>
+  <div class="kpi c1"><div class="kpi-lbl">Organic</div>
+    <div class="kpi-val" id="kv-organic">—</div><div class="kpi-sub" id="kv-organic-pct"></div></div>
+  <div class="kpi c2"><div class="kpi-lbl">Google</div>
+    <div class="kpi-val" id="kv-google">—</div><div class="kpi-sub" id="kv-google-pct"></div></div>
+  <div class="kpi c3"><div class="kpi-lbl">Facebook</div>
+    <div class="kpi-val" id="kv-fb">—</div><div class="kpi-sub" id="kv-fb-pct"></div></div>
+  <div class="kpi c4"><div class="kpi-lbl">Non-MS</div>
+    <div class="kpi-val" id="kv-nonms">—</div><div class="kpi-sub" id="kv-nonms-pct"></div></div>
+  <div class="kpi c5"><div class="kpi-lbl">Top Brand</div>
+    <div class="kpi-val" id="kv-topbrand" style="font-size:1.1rem;padding-top:6px;">—</div>
+    <div class="kpi-sub" id="kv-topbrand-cnt"></div></div>
+</div>
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('overview',this)">📊 Overview</div>
+  <div class="tab" onclick="switchTab('brand',this)">🏷️ Brand</div>
+  <div class="tab" onclick="switchTab('source',this)">📡 Source</div>
+  <div class="tab" onclick="switchTab('leadtype',this)">🎯 Lead Type</div>
+  <div class="tab" onclick="switchTab('geo',this)">🗺️ State / City</div>
+  <div class="tab" onclick="switchTab('dealer',this)">🏪 Dealer</div>
+  <div class="tab" onclick="switchTab('model',this)">🛵 Model</div>
+  <div class="tab" onclick="switchTab('trend',this)">📈 Monthly Trend</div>
+</div>
+
+<div class="tc active" id="tc-overview"><div class="panel">
+  <div class="crow c2">
+    <div class="cbox"><div class="ctitle">Lead Volume by Brand</div><canvas id="ch-brand-bar" height="220"></canvas></div>
+    <div class="cbox"><div class="ctitle">Source Mix</div><canvas id="ch-medium-pie" height="220"></canvas></div>
+  </div>
+  <div class="crow c2">
+    <div class="cbox"><div class="ctitle">Monthly Trend</div><canvas id="ch-trend-line" height="200"></canvas></div>
+    <div class="cbox"><div class="ctitle">Lead Type Distribution</div><canvas id="ch-lt-bar" height="200"></canvas></div>
+  </div>
+  <div class="crow c2">
+    <div class="cbox"><div class="ctitle">Top 10 States</div><canvas id="ch-state-bar" height="220"></canvas></div>
+    <div class="cbox"><div class="ctitle">Top 10 Cities</div><canvas id="ch-city-bar" height="220"></canvas></div>
+  </div>
+</div></div>
+
+<div class="tc" id="tc-brand"><div class="panel">
+  <div class="crow c2">
+    <div class="cbox"><div class="ctitle">Brand Volume</div><canvas id="ch-brand2" height="240"></canvas></div>
+    <div class="cbox"><div class="ctitle">Brand × Source</div><canvas id="ch-brand-med" height="240"></canvas></div>
+  </div>
+  <div class="crow c1"><div class="cbox"><div class="ctitle">Brand × Lead Type</div><canvas id="ch-brand-lt" height="200"></canvas></div></div>
+  <div class="cbox"><div class="ctitle">Brand Summary</div><div id="tbl-brand-wrap"></div></div>
+</div></div>
+
+<div class="tc" id="tc-source"><div class="panel">
+  <div class="crow c2">
+    <div class="cbox"><div class="ctitle">Source Volume</div><canvas id="ch-med2" height="220"></canvas></div>
+    <div class="cbox"><div class="ctitle">Source × Brand</div><canvas id="ch-med-brand" height="220"></canvas></div>
+  </div>
+  <div class="crow c1"><div class="cbox wide"><div class="ctitle">Source Trend by Month</div><canvas id="ch-med-trend" height="180"></canvas></div></div>
+  <div class="cbox"><div class="ctitle">Source × Lead Type</div><canvas id="ch-med-lt" height="200"></canvas></div>
+</div></div>
+
+<div class="tc" id="tc-leadtype"><div class="panel">
+  <div class="crow c2">
+    <div class="cbox"><div class="ctitle">Lead Type Volume</div><canvas id="ch-lt2" height="240"></canvas></div>
+    <div class="cbox"><div class="ctitle">Lead Type × Source</div><canvas id="ch-lt-med" height="240"></canvas></div>
+  </div>
+  <div class="crow c1"><div class="cbox"><div class="ctitle">Lead Type Monthly Trend</div><canvas id="ch-lt-trend" height="180"></canvas></div></div>
+  <div class="cbox"><div class="ctitle">Lead Type Table</div><div id="tbl-lt-wrap"></div></div>
+</div></div>
+
+<div class="tc" id="tc-geo"><div class="panel">
+  <div class="crow c2">
+    <div class="cbox"><div class="ctitle">Top 15 States</div><canvas id="ch-st-bar" height="280"></canvas></div>
+    <div class="cbox"><div class="ctitle">State × Brand Breakdown</div><canvas id="ch-st-brand" height="280"></canvas></div>
+  </div>
+  <div class="crow c2">
+    <div class="cbox"><div class="ctitle">State × Source</div><canvas id="ch-st-med" height="240"></canvas></div>
+    <div class="cbox"><div class="ctitle">Top 15 Cities</div><canvas id="ch-city2" height="240"></canvas></div>
+  </div>
+  <div class="cbox"><div class="ctitle">State / City Table</div>
+    <div class="srch-row">
+      <input class="srch" id="geo-srch" placeholder="Search state or city…" oninput="renderGeoTable()">
+      <span class="pg-info" id="geo-pg-info"></span>
+      <button class="pg-btn" id="geo-prev" onclick="geoPage(-1)">‹ Prev</button>
+      <button class="pg-btn" id="geo-next" onclick="geoPage(1)">Next ›</button>
+    </div><div id="tbl-geo-wrap"></div></div>
+</div></div>
+
+<div class="tc" id="tc-dealer"><div class="panel">
+  <div class="crow c1"><div class="cbox"><div class="ctitle">Top 20 Dealers</div><canvas id="ch-dealer-bar" height="260"></canvas></div></div>
+  <div class="cbox"><div class="ctitle">All Dealers (1,377 dealers)</div>
+    <div class="srch-row">
+      <input class="srch" id="dealer-srch" placeholder="Search dealer name…" oninput="renderDealerTable()">
+      <span class="pg-info" id="dlr-pg-info"></span>
+      <button class="pg-btn" id="dlr-prev" onclick="dlrPage(-1)">‹ Prev</button>
+      <button class="pg-btn" id="dlr-next" onclick="dlrPage(1)">Next ›</button>
+    </div><div id="tbl-dealer-wrap"></div></div>
+</div></div>
+
+<div class="tc" id="tc-model"><div class="panel">
+  <div class="crow c2">
+    <div class="cbox"><div class="ctitle">Top 15 Models</div><canvas id="ch-model-bar" height="280"></canvas></div>
+    <div class="cbox"><div class="ctitle">Models × Brand</div><canvas id="ch-model-brand" height="280"></canvas></div>
+  </div>
+  <div class="cbox"><div class="ctitle">All Models</div>
+    <div class="srch-row">
+      <input class="srch" id="model-srch" placeholder="Search model…" oninput="renderModelTable()">
+      <span class="pg-info" id="mdl-pg-info"></span>
+      <button class="pg-btn" id="mdl-prev" onclick="mdlPage(-1)">‹ Prev</button>
+      <button class="pg-btn" id="mdl-next" onclick="mdlPage(1)">Next ›</button>
+    </div><div id="tbl-model-wrap"></div></div>
+</div></div>
+
+<div class="tc" id="tc-trend"><div class="panel">
+  <div class="crow c1"><div class="cbox"><div class="ctitle">Overall Monthly Trend</div><canvas id="ch-trend2" height="200"></canvas></div></div>
+  <div class="crow c1"><div class="cbox"><div class="ctitle">Brand × Month (Stacked)</div><canvas id="ch-bm-stack" height="220"></canvas></div></div>
+  <div class="crow c2">
+    <div class="cbox"><div class="ctitle">Source × Month</div><canvas id="ch-med-trend2" height="220"></canvas></div>
+    <div class="cbox"><div class="ctitle">Lead Type × Month (Top 5)</div><canvas id="ch-lt-trend2" height="220"></canvas></div>
+  </div>
+</div></div>
+
+<script>
+Chart.register(ChartDataLabels);
+let D=null;
+let PARTIAL=new Set();
+const BCOL={"Ather": "#6C63FF", "BGauss": "#FF6B6B", "Ampere Electric": "#4ECDC4", "Vespa": "#45B7D1", "Aprilia": "#FFA07A", "Ola Electric": "#98D8C8", "Bajaj": "#F7DC6F", "KTM": "#E74C3C", "Triumph": "#2ECC71", "Husqvarna Motorcycles": "#9B59B6"}; const MCOL={"Organic": "#27AE60", "Google": "#3498DB", "Facebook": "#1877F2", "Non-MS": "#E67E22"}; const LTCOL={"CPS - OBD": "#6C63FF", "CPS - Standard": "#FF6B6B", "Digital Lead": "#4ECDC4", "Walk-in": "#F7DC6F", "CPS - Dealer": "#FFA07A", "CPS - Campaign": "#45B7D1", "Exchange": "#98D8C8", "Test Drive": "#E74C3C", "OBD": "#2ECC71", "Referral": "#9B59B6"};
+
+const fmt=n=>n>=1000?(n/1000).toFixed(1)+'K':n;
+const fmtN=n=>n.toLocaleString();
+const pct=(n,t)=>t?((n/t)*100).toFixed(1)+'%':'—';
+const topN=(obj,n=15)=>Object.entries(obj).sort((a,b)=>b[1]-a[1]).slice(0,n);
+const col=(keys,map,fb='#8b949e')=>keys.map(k=>map[k]||fb);
+const GC='rgba(255,255,255,.07)';
+const legendOpts={display:true,labels:{color:'#8b949e',boxWidth:12,font:{size:10}}};
+function baseOpts(){return{responsive:true,maintainAspectRatio:true,
+  plugins:{legend:{display:false},datalabels:{display:false}},
+  scales:{x:{grid:{color:GC},ticks:{color:'#8b949e',font:{size:10}}},
+           y:{grid:{color:GC},ticks:{color:'#8b949e',font:{size:10},callback:v=>fmt(v)}}}
+};}
+function hBarOpts(){return{indexAxis:'y',responsive:true,maintainAspectRatio:true,
+  plugins:{legend:{display:false},datalabels:{display:true,anchor:'end',align:'end',
+    formatter:v=>fmtN(v),color:'#8b949e',font:{size:9}}},
+  scales:{x:{grid:{color:GC},ticks:{color:'#8b949e',font:{size:10},callback:v=>fmt(v)}},
+           y:{grid:{color:'transparent'},ticks:{color:'#e6edf3',font:{size:10}}}}
+};}
+function stackedOpts(){const o=baseOpts();o.scales.x.stacked=true;o.scales.y.stacked=true;o.plugins.legend=legendOpts;o.plugins.datalabels={display:false};return o;}
+function pieOpts(){return{responsive:true,maintainAspectRatio:true,
+  plugins:{legend:{display:true,position:'right',labels:{color:'#e6edf3',boxWidth:12,padding:10,font:{size:10}}},
+    datalabels:{formatter:(v,ctx)=>{const t=ctx.dataset.data.reduce((a,b)=>a+b,0);return ((v/t)*100).toFixed(1)+'%';},color:'#fff',font:{weight:'bold',size:10}}}
+};}
+let charts={};
+function mkChart(id,type,labels,datasets,opts){
+  if(charts[id])charts[id].destroy();
+  const ctx=document.getElementById(id);
+  if(!ctx)return;
+  charts[id]=new Chart(ctx,{type,data:{labels,datasets},options:opts});
+}
+let fBrand='',fMedium='',fMonth='';
+function rebuildDropdowns(){
+  const bSel=document.getElementById('f-brand');
+  bSel.innerHTML='<option value="">All Brands</option>';
+  D.brands_all.forEach(b=>{const o=document.createElement('option');o.value=b;
+    o.textContent=PARTIAL.has(b)?b+' ⚠️':b;bSel.appendChild(o);});
+  const mSel=document.getElementById('f-medium');
+  mSel.innerHTML='<option value="">All Sources</option>';
+  D.mediums_all.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;mSel.appendChild(o);});
+  const moSel=document.getElementById('f-month');
+  moSel.innerHTML='<option value="">All Months</option>';
+  D.months_present.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;moSel.appendChild(o);});
+}
+async function loadData(){
+  const ov=document.getElementById('load-ov');
+  ov.style.display='flex';
+  try{
+    const r=await fetch('./data/dashboard_data.json?_t='+Date.now());
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    D=await r.json();
+    PARTIAL=new Set(D.partial_brands||[]);
+    rebuildDropdowns();
+    const upd=D.last_updated||'';
+    document.getElementById('hdr-meta').innerHTML=
+      `${D.total.toLocaleString()} leads • ${D.months_present.length} months`+
+      (upd?` • <span class="upd-lbl">updated ${upd}</span>`:'');
+    const notice=document.querySelector('.notice');
+    if(notice){
+      if(PARTIAL.size>0){
+        notice.style.display='flex';
+        notice.innerHTML='⚠️ <strong>Partial Data:</strong> '+[...PARTIAL].join(', ')+' figures are based on limited records (source file export constraints). EV brand data is complete.';
+      }else{notice.style.display='none';}
+    }
+  }catch(e){
+    ov.innerHTML='<div style="color:#e94560;text-align:center;padding:30px">Failed to load data.<br><small>'+e.message+'<br>Ensure data/dashboard_data.json exists and the page is served from a web server (not file://).</small></div>';
+    return false;
+  }finally{ov.style.display='none';}
+  return true;
+}
+window.addEventListener('DOMContentLoaded',async()=>{
+  await loadData();
+  applyFilters();
+});
+function applyFilters(){
+  fBrand=document.getElementById('f-brand').value;
+  fMedium=document.getElementById('f-medium').value;
+  fMonth=document.getElementById('f-month').value;
+  const parts=[];
+  if(fBrand)parts.push('Brand: '+fBrand.replace(' ⚠️',''));
+  if(fMedium)parts.push('Source: '+fMedium);
+  if(fMonth)parts.push('Month: '+fMonth);
+  document.getElementById('filter-label').textContent=parts.length?'🔍 '+parts.join(' · '):'';
+  renderAll();
+}
+function resetFilters(){
+  ['f-brand','f-medium','f-month'].forEach(id=>document.getElementById(id).value='');
+  applyFilters();
+}
+function filteredBrandTotals(){
+  const out={};
+  for(const b of D.brands_all){
+    if(fBrand&&b!==fBrand)continue;
+    if(fMedium&&fMonth){out[b]=D.brand_month[b]?.[fMonth]?Math.round((D.brand_month[b][fMonth])*(D.brand_medium[b]?.[fMedium]||0)/Math.max(1,Object.values(D.brand_medium[b]||{}).reduce((a,c)=>a+c,0))):0;}
+    else if(fMonth){out[b]=D.brand_month[b]?.[fMonth]||0;}
+    else if(fMedium){out[b]=D.brand_medium[b]?.[fMedium]||0;}
+    else{out[b]=D.by_brand[b]||0;}
+  }
+  return out;
+}
+function filteredMediumTotals(){
+  const out={};
+  for(const m of D.mediums_all){
+    if(fMedium&&m!==fMedium)continue;
+    if(fBrand&&fMonth){out[m]=Math.round((D.medium_month[m]?.[fMonth]||0)*(D.brand_medium[fBrand]?.[m]||0)/Math.max(1,Object.values(D.brand_medium[fBrand]||{}).reduce((a,c)=>a+c,0)));}
+    else if(fBrand){out[m]=D.brand_medium[fBrand]?.[m]||0;}
+    else if(fMonth){out[m]=D.medium_month[m]?.[fMonth]||0;}
+    else{out[m]=D.by_medium[m]||0;}
+  }
+  return out;
+}
+function updateKPIs(){
+  const mt=filteredMediumTotals();const bt=filteredBrandTotals();
+  const total=Object.values(bt).reduce((a,c)=>a+c,0);
+  document.getElementById('kv-total').textContent=fmtN(total);
+  document.getElementById('kv-sub').textContent=fBrand||fMedium||fMonth?'filtered':'deduplicated';
+  [['Organic','organic'],['Google','google'],['Facebook','fb'],['Non-MS','nonms']].forEach(([med,key])=>{
+    const v=mt[med]||0;
+    document.getElementById('kv-'+key).textContent=fmtN(v);
+    document.getElementById('kv-'+key+'-pct').textContent=pct(v,total);
+  });
+  const top=Object.entries(bt).sort((a,b)=>b[1]-a[1])[0];
+  if(top){document.getElementById('kv-topbrand').textContent=top[0];document.getElementById('kv-topbrand-cnt').textContent=fmtN(top[1])+' leads';}
+}
+let activeTab='overview';
+function switchTab(name,el){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tc').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');document.getElementById('tc-'+name).classList.add('active');
+  activeTab=name;renderTab(name);
+}
+function renderAll(){updateKPIs();renderTab(activeTab);}
+function renderTab(name){
+  if(name==='overview')renderOverview();
+  else if(name==='brand')renderBrand();
+  else if(name==='source')renderSource();
+  else if(name==='leadtype')renderLeadType();
+  else if(name==='geo')renderGeo();
+  else if(name==='dealer')renderDealer();
+  else if(name==='model')renderModel();
+  else if(name==='trend')renderTrend();
+}
+function renderOverview(){
+  const bt=filteredBrandTotals();const bE=Object.entries(bt).sort((a,b)=>b[1]-a[1]);
+  mkChart('ch-brand-bar','bar',bE.map(e=>e[0]),[{data:bE.map(e=>e[1]),backgroundColor:col(bE.map(e=>e[0]),BCOL,'#6C63FF'),borderRadius:4}],baseOpts());
+  const mt=filteredMediumTotals();const mK=Object.keys(mt).filter(k=>mt[k]>0);
+  mkChart('ch-medium-pie','doughnut',mK,[{data:mK.map(k=>mt[k]),backgroundColor:col(mK,MCOL,'#8b949e'),borderWidth:2,borderColor:'#1c2330'}],pieOpts());
+  const months=D.months_present;
+  const td=months.map(m=>fBrand?D.brand_month[fBrand]?.[m]||0:fMedium?D.medium_month[fMedium]?.[m]||0:D.by_month[m]||0);
+  mkChart('ch-trend-line','line',months,[{data:td,borderColor:'#e94560',backgroundColor:'rgba(233,69,96,.1)',fill:true,tension:.4,pointRadius:4,pointBackgroundColor:'#e94560'}],baseOpts());
+  const lt10=topN(D.by_lt,10);
+  mkChart('ch-lt-bar','bar',lt10.map(e=>e[0]),[{data:lt10.map(e=>e[1]),backgroundColor:col(lt10.map(e=>e[0]),LTCOL,'#6C63FF'),borderRadius:4}],hBarOpts());
+  const st10=topN(D.by_state,10);
+  mkChart('ch-state-bar','bar',st10.map(e=>e[0]),[{data:st10.map(e=>e[1]),backgroundColor:'rgba(69,183,209,.7)',borderRadius:4}],hBarOpts());
+  const ct10=topN(D.by_city,10);
+  mkChart('ch-city-bar','bar',ct10.map(e=>e[0]),[{data:ct10.map(e=>e[1]),backgroundColor:'rgba(78,205,196,.7)',borderRadius:4}],hBarOpts());
+}
+function renderBrand(){
+  const bt=filteredBrandTotals();const bE=Object.entries(bt).sort((a,b)=>b[1]-a[1]);
+  mkChart('ch-brand2','bar',bE.map(e=>e[0]),[{data:bE.map(e=>e[1]),backgroundColor:col(bE.map(e=>e[0]),BCOL,'#6C63FF'),borderRadius:4}],hBarOpts());
+  mkChart('ch-brand-med','bar',bE.map(e=>e[0]),D.mediums_all.map(m=>{return{label:m,data:bE.map(([b])=>D.brand_medium[b]?.[m]||0),backgroundColor:MCOL[m]||'#8b949e'}};),stackedOpts());
+  const topLts=topN(D.by_lt,6).map(e=>e[0]);
+  mkChart('ch-brand-lt','bar',bE.map(e=>e[0]),topLts.map(lt=>{return{label:lt,data:bE.map(([b])=>D.brand_lt[b]?.[lt]||0),backgroundColor:LTCOL[lt]||'#8b949e'}};),stackedOpts());
+  const total=Object.values(bt).reduce((a,c)=>a+c,0);
+  let html=`<table class="tbl"><thead><tr><th>#</th><th>Brand</th><th>Total</th><th>Share</th>${D.mediums_all.map(m=>`<th>${m}</th>`).join('')}</tr></thead><tbody>`;
+  bE.forEach(([b,cnt],i)=>{
+    const bw=total?Math.round(cnt/total*100):0;
+    const warn=PARTIAL.has(b)?'<span class="partial-badge">partial</span>':'';
+    html+=`<tr><td style="color:var(--muted)">${i+1}</td><td><strong>${b}</strong>${warn}</td><td class="num">${fmtN(cnt)}</td><td><div>${pct(cnt,total)}</div><div class="bar" style="width:${bw}%;background:${BCOL[b]||'var(--hl)'}"></div></td>${D.mediums_all.map(m=>`<td class="num">${fmtN(D.brand_medium[b]?.[m]||0)}</td>`).join('')}</tr>`;
+  });
+  html+='</tbody></table>';document.getElementById('tbl-brand-wrap').innerHTML=html;
+}
+function renderSource(){
+  const mt=filteredMediumTotals();const mE=Object.entries(mt).sort((a,b)=>b[1]-a[1]);
+  mkChart('ch-med2','doughnut',mE.map(e=>e[0]),[{data:mE.map(e=>e[1]),backgroundColor:col(mE.map(e=>e[0]),MCOL,'#8b949e'),borderWidth:2,borderColor:'#1c2330'}],pieOpts());
+  mkChart('ch-med-brand','bar',mE.map(e=>e[0]),D.brands_all.map(b=>{return{label:b,data:mE.map(([m])=>D.brand_medium[b]?.[m]||0),backgroundColor:BCOL[b]||'#8b949e'}};),stackedOpts());
+  const months=D.months_present;
+  const o=baseOpts();o.plugins.legend=legendOpts;
+  mkChart('ch-med-trend','line',months,D.mediums_all.map(m=>{return{label:m,data:months.map(mo=>D.medium_month[m]?.[mo]||0),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3}};),o);
+  const topLts=topN(D.by_lt,8).map(e=>e[0]);
+  mkChart('ch-med-lt','bar',D.mediums_all,topLts.map(lt=>{return{label:lt,data:D.mediums_all.map(m=>D.lt_medium[lt]?.[m]||0),backgroundColor:LTCOL[lt]||'#8b949e'}};),stackedOpts());
+}
+function renderLeadType(){
+  const ltE=Object.entries(D.by_lt).sort((a,b)=>b[1]-a[1]);const total=D.total;
+  mkChart('ch-lt2','bar',ltE.map(e=>e[0]),[{data:ltE.map(e=>e[1]),backgroundColor:col(ltE.map(e=>e[0]),LTCOL,'#6C63FF'),borderRadius:4}],hBarOpts());
+  mkChart('ch-lt-med','bar',ltE.map(e=>e[0]),D.mediums_all.map(m=>{return{label:m,data:ltE.map(([lt])=>D.lt_medium[lt]?.[m]||0),backgroundColor:MCOL[m]||'#8b949e'}};),stackedOpts());
+  const top5lt=ltE.slice(0,5).map(e=>e[0]);const months=D.months_present;
+  const o=baseOpts();o.plugins.legend=legendOpts;
+  mkChart('ch-lt-trend','line',months,top5lt.map(lt=>{return{label:lt,data:months.map(m=>D.lt_month[lt]?.[m]||0),borderColor:LTCOL[lt]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3}};),o);
+  let html=`<table class="tbl"><thead><tr><th>#</th><th>Lead Type</th><th>Total</th><th>Share</th>${D.mediums_all.map(m=>`<th>${m}</th>`).join('')}</tr></thead><tbody>`;
+  ltE.forEach(([lt,cnt],i)=>{const bw=Math.round(cnt/total*100);html+=`<tr><td style="color:var(--muted)">${i+1}</td><td><strong>${lt}</strong></td><td class="num">${fmtN(cnt)}</td><td><div>${pct(cnt,total)}</div><div class="bar" style="width:${bw}%;background:${LTCOL[lt]||'var(--hl)'}"></div></td>${D.mediums_all.map(m=>`<td class="num">${fmtN(D.lt_medium[lt]?.[m]||0)}</td>`).join('')}</tr>`;
+  });html+='</tbody></table>';document.getElementById('tbl-lt-wrap').innerHTML=html;
+}
+function renderGeo(){
+  const st15=topN(D.by_state,15);
+  mkChart('ch-st-bar','bar',st15.map(e=>e[0]),[{data:st15.map(e=>e[1]),backgroundColor:'rgba(69,183,209,.75)',borderRadius:4}],hBarOpts());
+  const o1=stackedOpts();o1.indexAxis='y';
+  mkChart('ch-st-brand','bar',st15.map(e=>e[0]),D.brands_all.map(b=>{return{label:b,data:st15.map(([s])=>D.state_brand[s]?.[b]||0),backgroundColor:BCOL[b]||'#8b949e'}};),o1);
+  const o2=stackedOpts();o2.indexAxis='y';
+  mkChart('ch-st-med','bar',st15.map(e=>e[0]),D.mediums_all.map(m=>{return{label:m,data:st15.map(([s])=>D.state_medium[s]?.[m]||0),backgroundColor:MCOL[m]||'#8b949e'}};),o2);
+  const ct15=topN(D.by_city,15);
+  mkChart('ch-city2','bar',ct15.map(e=>e[0]),[{data:ct15.map(e=>e[1]),backgroundColor:'rgba(78,205,196,.75)',borderRadius:4}],hBarOpts());
+  renderGeoTable();
+}
+let geoCurPage=0;const GEO_PG=25;
+function getGeoRows(){const q=(document.getElementById('geo-srch')?.value||'').toLowerCase();
+  const stR=Object.entries(D.by_state).map(([n,t])=>[n,'State',t]);
+  const ctR=Object.entries(D.by_city).map(([n,t])=>[n,'City',t]);
+  return [...stR,...ctR].sort((a,b)=>b[2]-a[2]).filter(r=>!q||r[0].toLowerCase().includes(q));}
+function renderGeoTable(){geoCurPage=0;renderGeoTablePage();}
+function geoPage(d){geoCurPage+=d;renderGeoTablePage();}
+function renderGeoTablePage(){
+  const rows=getGeoRows();const total=rows.reduce((a,r)=>a+r[2],0)||1;
+  const start=geoCurPage*GEO_PG,end=Math.min(start+GEO_PG,rows.length);
+  document.getElementById('geo-pg-info').textContent=`${start+1}–${end} of ${rows.length.toLocaleString()}`;
+  document.getElementById('geo-prev').disabled=geoCurPage===0;
+  document.getElementById('geo-next').disabled=end>=rows.length;
+  let html=`<table class="tbl"><thead><tr><th>#</th><th>Name</th><th>Type</th><th>Total</th><th>Share</th><th>Organic</th><th>Google</th><th>Facebook</th></tr></thead><tbody>`;
+  rows.slice(start,end).forEach(([name,type,cnt],i)=>{
+    const bw=Math.round(cnt/total*100);
+    const src=type==='State'?D.state_medium[name]:D.city_medium[name];
+    html+=`<tr><td style="color:var(--muted)">${start+i+1}</td><td><strong>${name}</strong></td><td><span class="badge" style="background:${type==='State'?'rgba(69,183,209,.2)':'rgba(78,205,196,.2)'};color:${type==='State'?'#45B7D1':'#4ECDC4'}">${type}</span></td><td class="num">${fmtN(cnt)}</td><td><div>${pct(cnt,total)}</div><div class="bar" style="width:${bw}%"></div></td><td class="num">${fmtN(src?.Organic||0)}</td><td class="num">${fmtN(src?.Google||0)}</td><td class="num">${fmtN(src?.Facebook||0)}</td></tr>`;
+  });
+  html+='</tbody></table>';document.getElementById('tbl-geo-wrap').innerHTML=html;
+}
+let dlrCurPage=0;const DLR_PG=30;
+function renderDealer(){
+  const top20=topN(D.by_dealer,21).filter(e=>e[0]!=='Unknown').slice(0,20);
+  mkChart('ch-dealer-bar','bar',top20.map(e=>e[0]),[{data:top20.map(e=>e[1]),backgroundColor:'rgba(108,99,255,.75)',borderRadius:4}],hBarOpts());
+  renderDealerTable();
+}
+function getDlrRows(){const q=(document.getElementById('dealer-srch')?.value||'').toLowerCase();
+  return Object.entries(D.by_dealer).sort((a,b)=>b[1]-a[1]).filter(([n])=>!q||n.toLowerCase().includes(q));}
+function renderDealerTable(){dlrCurPage=0;renderDlrPage();}
+function dlrPage(d){dlrCurPage+=d;renderDlrPage();}
+function renderDlrPage(){
+  const rows=getDlrRows();const start=dlrCurPage*DLR_PG,end=Math.min(start+DLR_PG,rows.length);
+  document.getElementById('dlr-pg-info').textContent=`${start+1}–${end} of ${rows.length.toLocaleString()}`;
+  document.getElementById('dlr-prev').disabled=dlrCurPage===0;
+  document.getElementById('dlr-next').disabled=end>=rows.length;
+  let html=`<table class="tbl"><thead><tr><th>#</th><th>Dealer Name</th><th>State</th><th>Total</th><th>Top Brand</th></tr></thead><tbody>`;
+  rows.slice(start,end).forEach(([name,cnt],i)=>{
+    const brands=D.dealer_brand[name]||{};const topB=Object.entries(brands).sort((a,b)=>b[1]-a[1])[0];
+    const states=D.dealer_state[name]||{};const topS=Object.entries(states).sort((a,b)=>b[1]-a[1])[0];
+    html+=`<tr><td style="color:var(--muted)">${start+i+1}</td><td><strong>${name}</strong></td><td>${topS?topS[0]:'—'}</td><td class="num">${fmtN(cnt)}</td><td>${topB?`<span class="badge" style="background:${BCOL[topB[0]]||'#8b949e'}22;color:${BCOL[topB[0]]||'#8b949e'}">${topB[0]}</span> <small style="color:var(--muted)">${fmtN(topB[1])}</small>`:'—'}</td></tr>`;
+  });
+  html+='</tbody></table>';document.getElementById('tbl-dealer-wrap').innerHTML=html;
+}
+let mdlCurPage=0;const MDL_PG=25;
+function renderModel(){
+  const top15=topN(D.by_model,15);
+  mkChart('ch-model-bar','bar',top15.map(e=>e[0]),[{data:top15.map(e=>e[1]),backgroundColor:'rgba(255,160,122,.75)',borderRadius:4}],hBarOpts());
+  const o=stackedOpts();o.indexAxis='y';
+  mkChart('ch-model-brand','bar',top15.map(e=>e[0]),D.brands_all.map(b=>{return{label:b,data:top15.map(([m])=>D.model_brand[m]?.[b]||0),backgroundColor:BCOL[b]||'#8b949e'}};),o);
+  renderModelTable();
+}
+function getMdlRows(){const q=(document.getElementById('model-srch')?.value||'').toLowerCase();
+  return Object.entries(D.by_model).sort((a,b)=>b[1]-a[1]).filter(([n])=>!q||n.toLowerCase().includes(q));}
+function renderModelTable(){mdlCurPage=0;renderMdlPage();}
+function mdlPage(d){mdlCurPage+=d;renderMdlPage();}
+function renderMdlPage(){
+  const rows=getMdlRows();const total=D.total;
+  const start=mdlCurPage*MDL_PG,end=Math.min(start+MDL_PG,rows.length);
+  document.getElementById('mdl-pg-info').textContent=`${start+1}–${end} of ${rows.length.toLocaleString()}`;
+  document.getElementById('mdl-prev').disabled=mdlCurPage===0;
+  document.getElementById('mdl-next').disabled=end>=rows.length;
+  let html=`<table class="tbl"><thead><tr><th>#</th><th>Model</th><th>Brand</th><th>Total</th><th>Share</th></tr></thead><tbody>`;
+  rows.slice(start,end).forEach(([model,cnt],i)=>{
+    const brands=D.model_brand[model]||{};const topB=Object.entries(brands).sort((a,b)=>b[1]-a[1])[0];
+    const bw=Math.round(cnt/total*100);
+    html+=`<tr><td style="color:var(--muted)">${start+i+1}</td><td><strong>${model}</strong></td><td>${topB?`<span class="badge" style="background:${BCOL[topB[0]]||'#8b949e'}22;color:${BCOL[topB[0]]||'#8b949e'}">${topB[0]}</span>`:'—'}</td><td class="num">${fmtN(cnt)}</td><td><div>${pct(cnt,total)}</div><div class="bar" style="width:${bw}%;background:${BCOL[topB?.[0]]||'var(--hl)'}"></div></td></tr>`;
+  });
+  html+='</tbody></table>';document.getElementById('tbl-model-wrap').innerHTML=html;
+}
+function renderTrend(){
+  const months=D.months_present;
+  mkChart('ch-trend2','line',months,[{data:months.map(m=>D.by_month[m]||0),borderColor:'#e94560',backgroundColor:'rgba(233,69,96,.1)',fill:true,tension:.4,pointRadius:4}],baseOpts());
+  mkChart('ch-bm-stack','bar',months,D.brands_all.map(b=>{return{label:b,data:months.map(m=>D.brand_month[b]?.[m]||0),backgroundColor:BCOL[b]||'#8b949e'}};),stackedOpts());
+  const o1=baseOpts();o1.plugins.legend=legendOpts;
+  mkChart('ch-med-trend2','line',months,D.mediums_all.map(m=>{return{label:m,data:months.map(mo=>D.medium_month[m]?.[mo]||0),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3}};),o1);
+  const top5lt=Object.entries(D.by_lt).sort((a,b)=>b[1]-a[1]).slice(0,5).map(e=>e[0]);
+  const o2=baseOpts();o2.plugins.legend=legendOpts;
+  mkChart('ch-lt-trend2','line',months,top5lt.map(lt=>{return{label:lt,data:months.map(m=>D.lt_month[lt]?.[m]||0),borderColor:LTCOL[lt]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3}};),o2);
+}
+</script>
+</body>
+</html>

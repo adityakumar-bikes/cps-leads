@@ -1,0 +1,14 @@
+# Google service account key — NEVER commit this
+credentials.json
+*.json.key
+service_account*.json
+
+# Python
+__pycache__/
+*.pyc
+.env
+venv/
+.venv/
+
+# macOS
+.DS_Store
