@@ -45,7 +45,7 @@ jobs:
         run: |
           git config user.name  "CPS Bot"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/dashboard_data.json data/manifest.json data/all_leads.json.gz
+          git add data/dashboard_data.json data/manifest.json data/all_leads.json.gz index.html
           if git diff --staged --quiet; then
             echo "No data changes — nothing to commit."
           else
