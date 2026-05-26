@@ -178,7 +178,6 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 </div></div>
 
 <div class="tc" id="tc-dealer"><div class="panel">
-  <div class="crow c1"><div class="cbox"><div class="ctitle">Top 20 Dealers</div><canvas id="ch-dealer-bar" height="160"></canvas></div></div>
   <div class="cbox"><div class="ctitle">All Dealers (1,377 dealers)</div>
     <div class="srch-row">
       <input class="srch" id="dealer-srch" placeholder="Search dealer name…" oninput="renderDealerTable()">
@@ -442,8 +441,6 @@ function renderGeoTablePage(){
 let dlrCurPage=0;const DLR_PG=30;
 function renderDealer(){
   _dlrFiltered=filteredDimCounts(D.by_dealer,D.dealer_brand,null);
-  const top20=topN(_dlrFiltered,21).filter(e=>e[0]!=='Unknown').slice(0,20);
-  mkChart('ch-dealer-bar','bar',top20.map(e=>e[0]),[{data:top20.map(e=>e[1]),backgroundColor:'rgba(108,99,255,.75)',borderRadius:4}],hBarOpts());
   renderDealerTable();
 }
 function getDlrRows(){const q=(document.getElementById('dealer-srch')?.value||'').toLowerCase();
