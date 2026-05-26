@@ -18,6 +18,7 @@ Run via GitHub Actions:
 import gzip, io, json, os, zipfile, csv, sys, re, socket, time
 from collections import defaultdict, Counter
 from datetime import datetime, timezone, timedelta
+import openpyxl
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -397,6 +398,44 @@ def deduplicate(rows):
     return out
 
 
+# ── BU Mapping ────────────────────────────────────────────────────────────────
+
+def load_model_bu_mapping(repo_root):
+    """Load Model Name → BU mapping from Bajaj Mapping.xlsx in repo root.
+    Returns dict: {model_name_lowercase: BU_string}
+    """
+    xlsx_path = os.path.join(repo_root, "Bajaj Mapping.xlsx")
+    if not os.path.exists(xlsx_path):
+        print("Warning: 'Bajaj Mapping.xlsx' not found — BU data will be absent")
+        return {}
+    try:
+        wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        wb.close()
+        if not rows:
+            return {}
+        header = [str(c).strip().lower() if c else "" for c in rows[0]]
+        model_idx = next((i for i, h in enumerate(header) if "model" in h), None)
+        bu_idx    = next((i for i, h in enumerate(header) if h == "bu"), None)
+        if model_idx is None or bu_idx is None:
+            print(f"Warning: Bajaj Mapping.xlsx missing 'Model Name' or 'BU' column (found: {header})")
+            return {}
+        mapping = {}
+        for row in rows[1:]:
+            if len(row) <= max(model_idx, bu_idx):
+                continue
+            model = str(row[model_idx]).strip() if row[model_idx] else ""
+            bu    = str(row[bu_idx]).strip()    if row[bu_idx]    else ""
+            if model and bu:
+                mapping[model.lower()] = bu
+        print(f"Loaded BU mapping: {len(mapping)} model → BU entries")
+        return mapping
+    except Exception as e:
+        print(f"Warning: Could not load Bajaj Mapping.xlsx: {e}")
+        return {}
+
+
 # ── Aggregation ───────────────────────────────────────────────────────────────
 
 def norm_lt(raw):
@@ -409,7 +448,7 @@ def norm_lt(raw):
     return v if v else "Unknown"
 
 
-def build_aggregations(all_rows):
+def build_aggregations(all_rows, model_to_bu=None):
     # Canonical model names
     model_cases = defaultdict(Counter)
     for r in all_rows:
@@ -442,6 +481,14 @@ def build_aggregations(all_rows):
     dealer_brand = defaultdict(dict); dealer_state = defaultdict(dict)
     medium_month = defaultdict(dict); lt_medium = defaultdict(dict)
     lt_month = defaultdict(dict); model_brand = defaultdict(dict)
+
+    # BU counters
+    by_bu = {}
+    bu_brand  = defaultdict(dict); bu_medium = defaultdict(dict)
+    bu_month  = defaultdict(dict); bu_state  = defaultdict(dict)
+    bu_city   = defaultdict(dict); bu_dealer = defaultdict(dict)
+    bu_lt     = defaultdict(dict); bu_model  = defaultdict(dict)
+    model_bu_map = {}   # model (canonical case) → BU string
 
     months_seen = set()
 
@@ -487,6 +534,21 @@ def build_aggregations(all_rows):
         inc(lt_month[lt],         month)
         inc(model_brand[model],   brand)
 
+        # BU aggregations (only for models present in the mapping)
+        if model_to_bu:
+            bu = model_to_bu.get(model.lower(), "")
+            if bu:
+                inc(by_bu,          bu)
+                inc(bu_brand[bu],   brand)
+                inc(bu_medium[bu],  medium)
+                inc(bu_month[bu],   month)
+                inc(bu_state[bu],   state)
+                inc(bu_city[bu],    city)
+                inc(bu_dealer[bu],  dealer)
+                inc(bu_lt[bu],      lt)
+                inc(bu_model[bu],   model)
+                model_bu_map[model] = bu
+
     # Sort months by canonical order
     month_key = {m: i for i, m in enumerate(MONTH_ORDER)}
     months_present = sorted(months_seen, key=lambda x: month_key.get(x, 999))
@@ -527,6 +589,16 @@ def build_aggregations(all_rows):
         "lt_medium":     dict(lt_medium),
         "lt_month":      {k: {m: v.get(m,0) for m in months_present} for k,v in lt_month.items()},
         "model_brand":   dict(model_brand),
+        "by_bu":         srt(by_bu),
+        "bu_brand":      dict(bu_brand),
+        "bu_medium":     dict(bu_medium),
+        "bu_month":      {k: {m: v.get(m,0) for m in months_present} for k,v in bu_month.items()},
+        "bu_state":      dict(bu_state),
+        "bu_city":       dict(bu_city),
+        "bu_dealer":     dict(bu_dealer),
+        "bu_lt":         dict(bu_lt),
+        "bu_model":      dict(bu_model),
+        "model_bu":      model_bu_map,
         "last_updated":  datetime.now(timezone.utc).strftime("%d %b %Y, %H:%M UTC"),
         # version and deployed_at are injected by main() after this returns
     }
@@ -626,9 +698,10 @@ def main():
     gz_mb = os.path.getsize(LEADS_F) / 1024 / 1024
     print(f"Saved all_leads.json.gz ({len(all_rows):,} rows, {gz_mb:.1f} MB)")
 
-    # Build aggregations
+    # Load BU mapping and build aggregations
+    model_to_bu = load_model_bu_mapping(REPO_ROOT)
     print("Building aggregations...")
-    dash = build_aggregations(all_rows)
+    dash = build_aggregations(all_rows, model_to_bu=model_to_bu)
     print(f"Total: {dash['total']:,} | Brands: {list(dash['by_brand'].keys())}")
 
     # Stamp version + deployment timestamp (IST)
