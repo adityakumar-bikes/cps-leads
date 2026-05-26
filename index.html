@@ -104,9 +104,6 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
     <div class="kpi-val" id="kv-fb">—</div><div class="kpi-sub" id="kv-fb-pct"></div></div>
   <div class="kpi c4"><div class="kpi-lbl">Non-MS</div>
     <div class="kpi-val" id="kv-nonms">—</div><div class="kpi-sub" id="kv-nonms-pct"></div></div>
-  <div class="kpi c5"><div class="kpi-lbl">Top Brand</div>
-    <div class="kpi-val" id="kv-topbrand" style="font-size:1.1rem;padding-top:6px;">—</div>
-    <div class="kpi-sub" id="kv-topbrand-cnt"></div></div>
 </div>
 <div class="tabs">
   <div class="tab active" onclick="switchTab('overview',this)">📊 Overview</div>
@@ -348,8 +345,7 @@ function updateKPIs(){
     document.getElementById('kv-'+key).textContent=fmtN(v);
     document.getElementById('kv-'+key+'-pct').textContent=pct(v,total);
   });
-  const top=Object.entries(bt).sort((a,b)=>b[1]-a[1])[0];
-  if(top){document.getElementById('kv-topbrand').textContent=top[0];document.getElementById('kv-topbrand-cnt').textContent=fmtN(top[1])+' leads';}
+
 }
 let activeTab='overview';
 function switchTab(name,el){
