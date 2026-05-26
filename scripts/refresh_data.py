@@ -437,13 +437,19 @@ def main():
     html_f = os.path.join(REPO_ROOT, "index.html")
     if os.path.exists(html_f):
         with open(html_f) as f:
-            html = f.read()
-        import re as _re
-        new_blob = "const D=" + json.dumps(dash, separators=(',',':')) + ";"
-        html = _re.sub(r'const D=\{.*?\};', new_blob, html, count=1, flags=_re.DOTALL)
-        with open(html_f, "w") as f:
-            f.write(html)
-        print(f"Updated index.html with fresh embedded data")
+            html_src = f.read()
+        start_marker = "\nconst D={"
+        end_marker   = ";\nconst BCOL"
+        if start_marker in html_src and end_marker in html_src:
+            s = html_src.index(start_marker) + 1
+            e = html_src.index(end_marker)
+            new_blob = "const D=" + json.dumps(dash, separators=(',',':')) + ";"
+            html_src = html_src[:s] + new_blob + html_src[e:]
+            with open(html_f, "w") as f:
+                f.write(html_src)
+            print(f"Updated index.html with fresh embedded data")
+        else:
+            print(f"Warning: could not find D block in index.html to update")
 
     # Update manifest
     manifest["last_run"] = datetime.now(timezone.utc).isoformat()
