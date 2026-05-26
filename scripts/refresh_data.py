@@ -620,6 +620,9 @@ def main():
         with gzip.open(LEADS_F, "rt", encoding="utf-8") as f:
             all_rows = json.load(f)
         print(f"Loaded {len(all_rows):,} existing leads from {LEADS_F}")
+    else:
+        print("all_leads.json.gz not in cache — forcing full reprocess of all Drive files.")
+        manifest["processed"] = {}   # treat every file as new so they all get re-downloaded
 
     # Auth
     print("Authenticating with Google Drive + Sheets...")
