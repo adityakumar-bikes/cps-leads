@@ -450,7 +450,10 @@ def build_aggregations(all_rows):
         medium  = str(r.get("Medium", "") or "").strip() or "Unknown"
         state   = str(r.get("State",  "") or "").strip() or "Unknown"
         city    = str(r.get("City",   "") or "").strip() or "Unknown"
-        dealer  = str(r.get("Dealer_Name","") or "").strip() or "Unknown"
+        crm_id  = str(r.get("oem_crm_id","") or "").strip()
+        d_city  = str(r.get("City","")       or "").strip()
+        d_state = str(r.get("State","")      or "").strip()
+        dealer  = f"{crm_id} · {d_city}, {d_state}" if crm_id else "Unknown"
         model   = cm(r.get("model", ""))
         lt      = norm_lt(r.get("lead_type",""))
         month   = str(r.get("Lead_Month","") or "").strip()
