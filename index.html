@@ -169,7 +169,12 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
     <div id="tbl-state-wrap"></div>
   </div>
   <div class="cbox" style="margin-top:16px"><div class="ctitle">Cities</div>
-    <div class="srch-row"><input class="srch" id="ct-srch" placeholder="Search city or state…" oninput="renderCityTable()"></div>
+    <div class="srch-row">
+      <input class="srch" id="ct-srch" placeholder="Search city or state…" oninput="renderCityTable()">
+      <span class="pg-info" id="ct-pg-info"></span>
+      <button class="pg-btn" id="ct-prev" onclick="ctPage(-1)">‹ Prev</button>
+      <button class="pg-btn" id="ct-next" onclick="ctPage(1)">Next ›</button>
+    </div>
     <div id="tbl-city-wrap"></div>
   </div>
 </div></div>
@@ -437,16 +442,23 @@ function renderStateTable(){
   });
   html+='</tbody></table>';document.getElementById('tbl-state-wrap').innerHTML=html;
 }
+let ctCurPage=0;const CT_PG=100;
+function ctPage(d){ctCurPage+=d;renderCityTable();}
 function renderCityTable(){
   const q=(document.getElementById('ct-srch')?.value||'').toLowerCase();
   const ctC=filteredDimCounts(D.by_city,D.city_brand,D.city_medium);
-  let rows=Object.entries(ctC).map(([n,cnt])=>[n,cnt,D.city_medium[n]||{},D.city_state?.[n]||'']).filter(([n,,, st])=>!q||n.toLowerCase().includes(q)||st.toLowerCase().includes(q));
+  let rows=Object.entries(ctC).map(([n,cnt])=>[n,cnt,D.city_medium[n]||{},D.city_state?.[n]||'']).filter(([n,,,st])=>!q||n.toLowerCase().includes(q)||st.toLowerCase().includes(q));
   rows=geoSortRows(rows,ctSort,0,1,2,3);
+  if(q)ctCurPage=0;
+  const start=ctCurPage*CT_PG,end=Math.min(start+CT_PG,rows.length);
+  document.getElementById('ct-pg-info').textContent=`${start+1}–${end} of ${rows.length.toLocaleString()}`;
+  document.getElementById('ct-prev').disabled=ctCurPage===0;
+  document.getElementById('ct-next').disabled=end>=rows.length;
   const total=Object.values(ctC).reduce((a,c)=>a+c,0)||1;
   let html=`<table class="tbl"><thead><tr><th>#</th>${ctHdr('name','City')}${ctHdr('state','State')}${ctHdr('total','Total')}<th>Share</th>${D.mediums_all.map(m=>ctHdr(m,m)).join('')}</tr></thead><tbody>`;
-  rows.forEach(([name,cnt,src,st],i)=>{
+  rows.slice(start,end).forEach(([name,cnt,src,st],i)=>{
     const bw=Math.round(cnt/total*100);
-    html+=`<tr><td style="color:var(--muted)">${i+1}</td><td><strong>${name}</strong></td><td style="color:var(--muted)">${st}</td><td class="num">${fmtN(cnt)}</td><td><div>${pct(cnt,total)}</div><div class="bar" style="width:${bw}%"></div></td>${D.mediums_all.map(m=>`<td class="num">${fmtN(src[m]||0)}</td>`).join('')}</tr>`;
+    html+=`<tr><td style="color:var(--muted)">${start+i+1}</td><td><strong>${name}</strong></td><td style="color:var(--muted)">${st}</td><td class="num">${fmtN(cnt)}</td><td><div>${pct(cnt,total)}</div><div class="bar" style="width:${bw}%"></div></td>${D.mediums_all.map(m=>`<td class="num">${fmtN(src[m]||0)}</td>`).join('')}</tr>`;
   });
   html+='</tbody></table>';document.getElementById('tbl-city-wrap').innerHTML=html;
 }
