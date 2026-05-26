@@ -275,7 +275,8 @@ async function loadData(){
   const ov=document.getElementById('load-ov');
   ov.style.display='flex';
   try{
-    const r=await fetch('./data/dashboard_data.json?_t='+Date.now());
+    const base=location.href.replace(/\/[^\/]*$/,'/').replace(/\/$/,'/')+(!location.href.endsWith('/')&&!location.href.endsWith('.html')?'/':'');
+    const r=await fetch(location.pathname.replace(/\/[^\/]*$/,'/')+'data/dashboard_data.json?_t='+Date.now());
     if(!r.ok) throw new Error('HTTP '+r.status);
     D=await r.json();
     PARTIAL=new Set(D.partial_brands||[]);
@@ -298,8 +299,8 @@ async function loadData(){
   return true;
 }
 window.addEventListener('DOMContentLoaded',async()=>{
-  await loadData();
-  applyFilters();
+  const ok=await loadData();
+  if(ok) applyFilters();
 });
 function applyFilters(){
   fBrand=document.getElementById('f-brand').value;
@@ -358,7 +359,7 @@ function switchTab(name,el){
   el.classList.add('active');document.getElementById('tc-'+name).classList.add('active');
   activeTab=name;renderTab(name);
 }
-function renderAll(){updateKPIs();renderTab(activeTab);}
+function renderAll(){if(!D)return;updateKPIs();renderTab(activeTab);}
 function renderTab(name){
   if(name==='overview')renderOverview();
   else if(name==='brand')renderBrand();
