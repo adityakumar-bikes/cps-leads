@@ -479,6 +479,8 @@ def build_aggregations(all_rows, model_to_bu=None):
     city_brand = defaultdict(dict); city_medium = defaultdict(dict)
     city_state_ctr = defaultdict(Counter)
     dealer_brand = defaultdict(dict); dealer_state = defaultdict(dict)
+    dealer_medium = defaultdict(dict); dealer_month = defaultdict(dict)
+    model_dealer = defaultdict(dict)
     medium_month = defaultdict(dict); lt_medium = defaultdict(dict)
     lt_month = defaultdict(dict); model_brand = defaultdict(dict)
 
@@ -527,8 +529,11 @@ def build_aggregations(all_rows, model_to_bu=None):
         inc(city_brand[city],     brand)
         inc(city_medium[city],    medium)
         city_state_ctr[city][state] += 1
-        inc(dealer_brand[dealer], brand)
-        inc(dealer_state[dealer], state)
+        inc(dealer_brand[dealer],  brand)
+        inc(dealer_state[dealer],  state)
+        inc(dealer_medium[dealer], medium)
+        inc(dealer_month[dealer],  month)
+        inc(model_dealer[model],   dealer)
         inc(medium_month[medium], month)
         inc(lt_medium[lt],        medium)
         inc(lt_month[lt],         month)
@@ -583,6 +588,9 @@ def build_aggregations(all_rows, model_to_bu=None):
         "city_state":    {c: s.most_common(1)[0][0] for c, s in city_state_ctr.items()},
         "dealer_brand":  dict(dealer_brand),
         "dealer_state":  dict(dealer_state),
+        "dealer_medium": dict(dealer_medium),
+        "dealer_month":  {k: {m: v.get(m,0) for m in months_present} for k,v in dealer_month.items()},
+        "model_dealer":  dict(model_dealer),
         "medium_month":  {k: {m: v.get(m,0) for m in months_present} for k,v in medium_month.items()},
         "lt_medium":     dict(lt_medium),
         "lt_month":      {k: {m: v.get(m,0) for m in months_present} for k,v in lt_month.items()},
