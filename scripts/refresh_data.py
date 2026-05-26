@@ -483,6 +483,8 @@ def build_aggregations(all_rows, model_to_bu=None):
     model_dealer = defaultdict(dict)
     medium_month = defaultdict(dict); lt_medium = defaultdict(dict)
     lt_month = defaultdict(dict); model_brand = defaultdict(dict)
+    state_month  = defaultdict(dict); city_month  = defaultdict(dict)
+    model_month  = defaultdict(dict)
 
     # BU counters
     by_bu = {}
@@ -538,6 +540,9 @@ def build_aggregations(all_rows, model_to_bu=None):
         inc(lt_medium[lt],        medium)
         inc(lt_month[lt],         month)
         inc(model_brand[model],   brand)
+        inc(state_month[state],   month)
+        inc(city_month[city],     month)
+        inc(model_month[model],   month)
 
         # BU aggregations — mapped models use the xlsx BU, all others fall back to brand
         bu = model_to_bu.get(model.lower(), brand) if model_to_bu else brand
@@ -605,6 +610,9 @@ def build_aggregations(all_rows, model_to_bu=None):
         "bu_lt":         dict(bu_lt),
         "bu_model":      dict(bu_model),
         "model_bu":      model_bu_map,
+        "state_month":   {k: {m: v.get(m,0) for m in months_present} for k,v in state_month.items()},
+        "city_month":    {k: {m: v.get(m,0) for m in months_present} for k,v in city_month.items()},
+        "model_month":   {k: {m: v.get(m,0) for m in months_present} for k,v in model_month.items()},
         "last_updated":  datetime.now(timezone.utc).strftime("%d %b %Y, %H:%M UTC"),
         # version and deployed_at are injected by main() after this returns
     }
