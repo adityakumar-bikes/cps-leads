@@ -638,11 +638,13 @@ function renderDlrPage(){
   document.getElementById('dlr-next').disabled=end>=rows.length;
   document.getElementById('dlr-title').textContent=`All Dealers (${rows.length.toLocaleString()} dealers)`;
   const subTotal=rows.reduce((s,[,c])=>s+c,0);
-  let html=`<table class="tbl"><thead><tr><th>#</th><th>Dealer</th><th>City</th><th>State</th><th>Total</th></tr></thead><tbody>`;
-  html+=`<tr style="background:rgba(108,99,255,.1);font-weight:700;border-bottom:2px solid var(--border)"><td style="color:var(--muted)">∑</td><td>Subtotal</td><td style="color:var(--muted)">${rows.length.toLocaleString()} dealers</td><td>—</td><td class="num">${fmtN(subTotal)}</td></tr>`;
+  let html=`<table class="tbl"><thead><tr><th>#</th><th>Dealer</th><th>City</th><th>State</th><th>Total</th><th>Share %</th></tr></thead><tbody>`;
+  html+=`<tr style="background:rgba(108,99,255,.1);font-weight:700;border-bottom:2px solid var(--border)"><td style="color:var(--muted)">∑</td><td>Subtotal</td><td style="color:var(--muted)">${rows.length.toLocaleString()} dealers</td><td>—</td><td class="num">${fmtN(subTotal)}</td><td class="num">100%</td></tr>`;
   rows.slice(start,end).forEach(([name,cnt],i)=>{
     const city=dlrCity(name);const state=dlrState(name);
-    html+=`<tr><td style="color:var(--muted)">${start+i+1}</td><td><strong>${name}</strong></td><td>${city||'—'}</td><td style="color:var(--muted)">${state||'—'}</td><td class="num">${fmtN(cnt)}</td></tr>`;
+    const share=subTotal>0?(cnt/subTotal*100).toFixed(1)+'%':'—';
+    const barW=subTotal>0?Math.round(cnt/subTotal*100):0;
+    html+=`<tr><td style="color:var(--muted)">${start+i+1}</td><td><strong>${name}</strong></td><td>${city||'—'}</td><td style="color:var(--muted)">${state||'—'}</td><td class="num">${fmtN(cnt)}</td><td class="num" style="min-width:90px"><div style="display:flex;align-items:center;gap:6px"><span>${share}</span><div style="flex:1;height:4px;border-radius:2px;background:var(--border)"><div style="height:4px;border-radius:2px;background:var(--hl);width:${barW}%"></div></div></div></td></tr>`;
   });
   html+='</tbody></table>';document.getElementById('tbl-dealer-wrap').innerHTML=html;
 }
