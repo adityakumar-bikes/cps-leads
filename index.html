@@ -222,7 +222,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
     </div>
     <div class="cbox">
       <div class="ctitle">Flags by City (Top 10)</div>
-      <canvas id="ch-fl-city" height="160"></canvas>
+      <canvas id="ch-fl-city" height="80"></canvas>
     </div>
   </div>
   <div class="cbox" style="margin-top:0">
@@ -695,10 +695,13 @@ function renderTrend(){
 }
 
 // ─── Business Flags ──────────────────────────────────────────────────────────
+function _fmtShare(s){return(s<1?s<0.1?s.toFixed(2):s.toFixed(1):s.toFixed(1))+'%';}
 function computeFlags(){
   const dlrs=getFilteredDealers();
+  const MIN_LEADS=10; // ignore ghost dealers with <10 leads
   const cityMap={};
   for(const [name,cnt] of Object.entries(dlrs)){
+    if(cnt<MIN_LEADS)continue;
     const city=dlrCity(name);const state=dlrState(name);
     if(!city)continue;
     if(!cityMap[city])cityMap[city]={state,dealers:[]};
@@ -714,17 +717,18 @@ function computeFlags(){
         flags.push({
           severity:'RED',category:'Supply Concentration',
           entity:d.name,metric:'City Lead Share',
-          value:share.toFixed(1)+'%',threshold:'<30% (under-supplied)',
-          description:`Dealer receives only ${share.toFixed(0)}% of ${city} leads`,
+          value:_fmtShare(share),threshold:'<30% (under-supplied)',
+          description:`Dealer receives only ${_fmtShare(share)} of ${city} leads`,
           dealers_in_city:dealers.length,city,state,
           dealer_cnt:d.cnt,city_total:cityTotal,
-          all_dealers:dealers
+          all_dealers:dealers,
+          _share:share
         });
       }
     }
   }
-  flags.sort((a,b)=>parseFloat(a.value)-parseFloat(b.value));
-  return flags.slice(0,50);
+  flags.sort((a,b)=>a._share-b._share);
+  return flags;
 }
 
 function _flCityPanel(flag){
