@@ -256,7 +256,10 @@ window.addEventListener('DOMContentLoaded',()=>{
   D.mediums_all.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;mSel.appendChild(o);});
   const moSel=document.getElementById('f-month');
   D.months_present.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;moSel.appendChild(o);});
-  const verStr=D.version?`<div style="font-size:.7rem;margin-top:3px;color:#6c8ebf;letter-spacing:.3px">v${D.version} &bull; ${D.deployed_at||''}</div>`:'';
+  const lm=new Date(document.lastModified);
+  const ist=new Date(lm.getTime()+19800000);
+  const deployedAt=ist.toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'UTC'}).replace(',',' ')+' IST';
+  const verStr=D.version?`<div style="font-size:.7rem;margin-top:3px;color:#6c8ebf;letter-spacing:.3px">v${D.version} &bull; ${deployedAt}</div>`:'';
   document.getElementById('hdr-meta').innerHTML=`${D.total.toLocaleString()} leads &bull; ${D.months_present.length} months`+verStr;
   applyFilters();
 });
