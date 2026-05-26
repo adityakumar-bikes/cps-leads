@@ -15,9 +15,12 @@ Run via GitHub Actions:
     Set GOOGLE_SERVICE_ACCOUNT_JSON secret (contents of credentials.json).
 """
 
-import gzip, io, json, os, zipfile, csv, sys, re
+import gzip, io, json, os, zipfile, csv, sys, re, socket, time
 from collections import defaultdict, Counter
 from datetime import datetime, timezone
+
+# Large Bajaj files need longer timeout (default is ~60s)
+socket.setdefaulttimeout(600)   # 10 minutes
 
 # ── Google API ───────────────────────────────────────────────────────────────
 from google.oauth2 import service_account
@@ -105,16 +108,26 @@ def list_folder_sheets(service):
     return results
 
 
-def export_as_zip(service, file_id):
-    """Export a Google Sheets file as ZIP (each sheet becomes a separate CSV)."""
-    req = service.files().export_media(fileId=file_id, mimeType="application/zip")
-    buf = io.BytesIO()
-    dl = MediaIoBaseDownload(buf, req)
-    done = False
-    while not done:
-        _, done = dl.next_chunk()
-    buf.seek(0)
-    return buf
+def export_as_zip(service, file_id, max_retries=3):
+    """Export a Google Sheets file as ZIP (each sheet becomes a separate CSV).
+    Retries up to max_retries times on timeout or transient errors."""
+    for attempt in range(max_retries):
+        try:
+            req = service.files().export_media(fileId=file_id, mimeType="application/zip")
+            buf = io.BytesIO()
+            dl = MediaIoBaseDownload(buf, req, chunksize=20 * 1024 * 1024)  # 20 MB chunks
+            done = False
+            while not done:
+                _, done = dl.next_chunk()
+            buf.seek(0)
+            return buf
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait = 15 * (attempt + 1)
+                print(f"    ⚠ Attempt {attempt+1} failed ({e}), retrying in {wait}s…")
+                time.sleep(wait)
+            else:
+                raise
 
 
 # ── Parsing ──────────────────────────────────────────────────────────────────
