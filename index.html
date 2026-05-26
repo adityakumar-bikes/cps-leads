@@ -157,7 +157,6 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
     <div class="cbox"><div class="ctitle">Lead Type Volume</div><canvas id="ch-lt2" height="150"></canvas></div>
     <div class="cbox"><div class="ctitle">Lead Type × Source</div><canvas id="ch-lt-med" height="150"></canvas></div>
   </div>
-  <div class="crow c1"><div class="cbox"><div class="ctitle">Lead Type Monthly Trend</div><canvas id="ch-lt-trend" height="120"></canvas></div></div>
   <div class="cbox"><div class="ctitle">Lead Type Table</div><div id="tbl-lt-wrap"></div></div>
 </div></div>
 
@@ -426,9 +425,6 @@ function renderLeadType(){
   const mShow=fMedium?[fMedium]:D.mediums_all;
   mkChart('ch-lt2','bar',ltE.map(e=>e[0]),[{data:ltE.map(e=>e[1]),backgroundColor:col(ltE.map(e=>e[0]),LTCOL,'#6C63FF'),borderRadius:4}],hBarOpts());
   mkChart('ch-lt-med','bar',ltE.map(e=>e[0]),mShow.map(m=>{return{label:m,data:ltE.map(([lt])=>D.lt_medium[lt]?.[m]||0),backgroundColor:MCOL[m]||'#8b949e'}}),stackedOpts());
-  const top5lt=ltE.slice(0,5).map(e=>e[0]);const months=D.months_present;
-  const o=baseOpts();o.plugins.legend=legendOpts;
-  mkChart('ch-lt-trend','line',months,top5lt.map(lt=>{return{label:lt,data:months.map(m=>fBrand?D.brand_lt[fBrand]?.[lt]?Math.round((D.brand_lt[fBrand][lt])*(D.lt_month[lt]?.[m]||0)/Math.max(1,D.by_lt[lt]||1)):0:D.lt_month[lt]?.[m]||0),borderColor:LTCOL[lt]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3}}),o);
   let html=`<table class="tbl"><thead><tr><th>#</th><th>Lead Type</th><th>Total</th><th>Share</th>${D.mediums_all.map(m=>`<th>${m}</th>`).join('')}</tr></thead><tbody>`;
   ltE.forEach(([lt,cnt],i)=>{const bw=total?Math.round(cnt/total*100):0;html+=`<tr><td style="color:var(--muted)">${i+1}</td><td><strong>${lt}</strong></td><td class="num">${fmtN(cnt)}</td><td><div>${pct(cnt,total)}</div><div class="bar" style="width:${bw}%;background:${LTCOL[lt]||'var(--hl)'}"></div></td>${D.mediums_all.map(m=>`<td class="num">${fmtN(D.lt_medium[lt]?.[m]||0)}</td>`).join('')}</tr>`;
   });html+='</tbody></table>';document.getElementById('tbl-lt-wrap').innerHTML=html;
