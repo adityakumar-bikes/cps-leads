@@ -82,11 +82,13 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 </div>
 <div class="fbar">
   <div class="fg"><label>Brand</label>
-    <select id="f-brand" onchange="applyFilters()"><option value="">All Brands</option></select></div>
+    <select id="f-brand" onchange="onBrandChange()"><option value="">All Brands</option></select></div>
   <div class="fg"><label>Source</label>
     <select id="f-medium" onchange="applyFilters()"><option value="">All Sources</option></select></div>
   <div class="fg"><label>Month</label>
     <select id="f-month" onchange="applyFilters()"><option value="">All Months</option></select></div>
+  <div class="fg"><label>Model</label>
+    <select id="f-model" onchange="applyFilters()"><option value="">All Models</option></select></div>
   <button class="fbtn" onclick="applyFilters()">Apply</button>
   <button class="freset" onclick="resetFilters()">Reset</button>
   <span id="filter-label" style="font-size:.78rem;color:var(--muted);margin-left:4px;"></span>
@@ -248,7 +250,7 @@ function mkChart(id,type,labels,datasets,opts){
   if(!ctx)return;
   charts[id]=new Chart(ctx,{type,data:{labels,datasets},options:opts});
 }
-let fBrand='',fMedium='',fMonth='';
+let fBrand='',fMedium='',fMonth='',fModel='';
 window.addEventListener('DOMContentLoaded',()=>{
   const bSel=document.getElementById('f-brand');
   D.brands_all.forEach(b=>{const o=document.createElement('option');o.value=b;
@@ -257,6 +259,7 @@ window.addEventListener('DOMContentLoaded',()=>{
   D.mediums_all.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;mSel.appendChild(o);});
   const moSel=document.getElementById('f-month');
   D.months_present.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;moSel.appendChild(o);});
+  populateModelFilter();
   const lm=new Date(document.lastModified);
   const ist=new Date(lm.getTime()+19800000);
   const deployedAt=ist.toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'UTC'}).replace(',',' ')+' IST';
@@ -264,19 +267,36 @@ window.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('hdr-meta').innerHTML=`${D.total.toLocaleString()} leads &bull; ${D.months_present.length} months`+verStr;
   applyFilters();
 });
+function populateModelFilter(){
+  const b=document.getElementById('f-brand').value;
+  const sel=document.getElementById('f-model');
+  const prev=sel.value;
+  sel.innerHTML='<option value="">All Models</option>';
+  const entries=b?Object.entries(D.brand_model[b]||{}).sort((a,x)=>x[1]-a[1]):Object.entries(D.by_model).sort((a,x)=>x[1]-a[1]);
+  entries.forEach(([m])=>{const o=document.createElement('option');o.value=m;o.textContent=m;if(m===prev)o.selected=true;sel.appendChild(o);});
+  if(prev&&!entries.find(([m])=>m===prev))sel.value='';
+}
+function onBrandChange(){
+  fBrand=document.getElementById('f-brand').value;
+  populateModelFilter();
+  applyFilters();
+}
 function applyFilters(){
   fBrand=document.getElementById('f-brand').value;
   fMedium=document.getElementById('f-medium').value;
   fMonth=document.getElementById('f-month').value;
+  fModel=document.getElementById('f-model').value;
   const parts=[];
   if(fBrand)parts.push('Brand: '+fBrand.replace(' ⚠️',''));
   if(fMedium)parts.push('Source: '+fMedium);
   if(fMonth)parts.push('Month: '+fMonth);
+  if(fModel)parts.push('Model: '+fModel);
   document.getElementById('filter-label').textContent=parts.length?'🔍 '+parts.join(' · '):'';
   renderAll();
 }
 function resetFilters(){
-  ['f-brand','f-medium','f-month'].forEach(id=>document.getElementById(id).value='');
+  ['f-brand','f-medium','f-month','f-model'].forEach(id=>document.getElementById(id).value='');
+  populateModelFilter();
   applyFilters();
 }
 // Returns filtered counts for a secondary dimension using brand/medium cross-data
@@ -293,10 +313,19 @@ function filteredBrandTotals(){
   const out={};
   for(const b of D.brands_all){
     if(fBrand&&b!==fBrand)continue;
-    if(fMedium&&fMonth){out[b]=D.brand_month[b]?.[fMonth]?Math.round((D.brand_month[b][fMonth])*(D.brand_medium[b]?.[fMedium]||0)/Math.max(1,Object.values(D.brand_medium[b]||{}).reduce((a,c)=>a+c,0))):0;}
-    else if(fMonth){out[b]=D.brand_month[b]?.[fMonth]||0;}
-    else if(fMedium){out[b]=D.brand_medium[b]?.[fMedium]||0;}
-    else{out[b]=D.by_brand[b]||0;}
+    // base count: model filter takes precedence, then medium/month
+    let base;
+    if(fModel){
+      base=D.brand_model[b]?.[fModel]||0;
+      // scale by medium/month ratios if also set
+      if(fMedium&&base){const bT=D.by_brand[b]||1;base=Math.round(base*(D.brand_medium[b]?.[fMedium]||0)/bT);}
+      if(fMonth&&base){const bT=D.by_brand[b]||1;base=Math.round(base*(D.brand_month[b]?.[fMonth]||0)/bT);}
+    } else if(fMedium&&fMonth){
+      base=D.brand_month[b]?.[fMonth]?Math.round((D.brand_month[b][fMonth])*(D.brand_medium[b]?.[fMedium]||0)/Math.max(1,Object.values(D.brand_medium[b]||{}).reduce((a,c)=>a+c,0))):0;
+    } else if(fMonth){base=D.brand_month[b]?.[fMonth]||0;}
+    else if(fMedium){base=D.brand_medium[b]?.[fMedium]||0;}
+    else{base=D.by_brand[b]||0;}
+    out[b]=base;
   }
   return out;
 }
@@ -487,7 +516,7 @@ function renderDlrPage(){
 }
 let mdlCurPage=0;const MDL_PG=25;
 function renderModel(){
-  _mdlFiltered=fBrand?Object.fromEntries(Object.entries(D.model_brand).map(([m,bm])=>[m,bm[fBrand]||0]).filter(([,v])=>v>0)):D.by_model;
+  _mdlFiltered=fModel?{[fModel]:D.by_model[fModel]||0}:fBrand?Object.fromEntries(Object.entries(D.model_brand).map(([m,bm])=>[m,bm[fBrand]||0]).filter(([,v])=>v>0)):D.by_model;
   const top15=topN(_mdlFiltered,15);
   mkChart('ch-model-bar','bar',top15.map(e=>e[0]),[{data:top15.map(e=>e[1]),backgroundColor:'rgba(255,160,122,.75)',borderRadius:4}],hBarOpts());
   const o=stackedOpts();o.indexAxis='y';
