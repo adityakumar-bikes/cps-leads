@@ -37,17 +37,57 @@ MANIFEST_F = os.path.join(DATA_DIR, "manifest.json")
 LEADS_F    = os.path.join(DATA_DIR, "all_leads.json.gz")   # gzip to stay under GitHub 50MB limit
 DASH_F     = os.path.join(DATA_DIR, "dashboard_data.json")
 
+# Sheets to ALWAYS skip regardless of name (summary/pivot sheets)
 SKIP_SHEETS = {
     "filter",
     "city wise source wise lead flow",
     "lt wise lead flow",
     "final combine",
+    "city wise",
+    "lt wise",
+    "source wise",
+    "summary",
+    "overview",
+    "roi",
+    "model wise",
+    "dealer wise",
+    "state wise",
 }
 
 VALID_BRANDS = {
     "ather", "bgauss", "ampere electric", "vespa", "aprilia",
     "ola electric", "bajaj", "ktm", "triumph", "husqvarna motorcycles",
 }
+
+def is_brand_sheet(sheet_label: str) -> bool:
+    """Return True only if this sheet name looks like a brand data sheet.
+
+    Rules (applied to lowercased, stripped sheet label):
+      1. Must contain at least one valid brand name   — OR —
+         be a plain month label (e.g. "apr'25", "feb 2026")
+      2. Must NOT be in the hard SKIP_SHEETS list
+    """
+    sl = sheet_label.lower().strip()
+
+    # Hard skip list wins
+    if sl in SKIP_SHEETS:
+        return False
+    # Also partial-match skip list (e.g. "city wise source wise …")
+    for skip in SKIP_SHEETS:
+        if skip in sl:
+            return False
+
+    # Accept if the sheet name contains a brand
+    for brand in VALID_BRANDS:
+        if brand in sl:
+            return True
+
+    # Accept plain month sheets: "apr'25", "feb'26", "jan 2026", etc.
+    import re as _re
+    if _re.search(r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)", sl):
+        return True
+
+    return False
 
 COLS = [
     "encrypt_mobile_number", "id_verified_lead", "opty_id", "Date",
@@ -137,7 +177,8 @@ def export_as_zip(service, file_id, max_retries=3):
 def parse_zip_rows(zip_buf, file_name):
     """
     Open a ZIP of CSVs exported from Google Sheets.
-    Skip any sheet whose name (after stripping the file prefix) is in SKIP_SHEETS.
+    Only process sheets whose name matches a brand name or month label.
+    Skips all summary/pivot sheets (Filter, City Wise, LT Wise, etc.).
     Return list of row dicts with COLS keys, filtered to VALID_BRANDS.
     """
     rows = []
@@ -152,11 +193,11 @@ def parse_zip_rows(zip_buf, file_name):
             # Strip "filename - " prefix if present
             if " - " in sheet_label:
                 sheet_label = sheet_label.split(" - ", 1)[-1]
-            sheet_label_lower = sheet_label.lower().strip()
 
-            if sheet_label_lower in SKIP_SHEETS:
+            if not is_brand_sheet(sheet_label):
                 print(f"    skip sheet: {sheet_label}")
                 continue
+            print(f"    reading sheet: {sheet_label}")
 
             with zf.open(member) as f:
                 raw = f.read().decode("utf-8-sig", errors="replace")
@@ -175,6 +216,7 @@ def parse_zip_rows(zip_buf, file_name):
 
             # Need at least brand + Medium to be useful
             if "brand" not in hdr_map or "Medium" not in hdr_map:
+                print(f"    skip sheet '{sheet_label}': missing columns (found: {list(hdr_map.keys())[:6]})")
                 continue
 
             sheet_rows = 0
