@@ -205,11 +205,10 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 </div></div>
 
 <div class="tc" id="tc-trend"><div class="panel">
-  <div class="crow c1"><div class="cbox"><div class="ctitle">Overall Monthly Trend</div><canvas id="ch-trend2" height="130"></canvas></div></div>
-  <div class="crow c1"><div class="cbox"><div class="ctitle">Brand × Month (Stacked)</div><canvas id="ch-bm-stack" height="140"></canvas></div></div>
+  <div class="crow c1"><div class="cbox"><div class="ctitle">Brand × Month (Stacked)</div><canvas id="ch-bm-stack" height="98"></canvas></div></div>
   <div class="crow c2">
-    <div class="cbox"><div class="ctitle">Source × Month</div><canvas id="ch-med-trend2" height="140"></canvas></div>
-    <div class="cbox"><div class="ctitle">Lead Type × Month (Top 5)</div><canvas id="ch-lt-trend2" height="140"></canvas></div>
+    <div class="cbox"><div class="ctitle">Source × Month</div><canvas id="ch-med-trend2" height="98"></canvas></div>
+    <div class="cbox"><div class="ctitle">Lead Type × Month (Top 5)</div><canvas id="ch-lt-trend2" height="98"></canvas></div>
   </div>
 </div></div>
 
@@ -541,8 +540,6 @@ function renderMdlPage(){
 }
 function renderTrend(){
   const months=D.months_present;
-  const monthData=months.map(m=>fBrand?D.brand_month[fBrand]?.[m]||0:fMedium?D.medium_month[fMedium]?.[m]||0:D.by_month[m]||0);
-  mkChart('ch-trend2','line',months,[{data:monthData,borderColor:'#e94560',backgroundColor:'rgba(233,69,96,.1)',fill:true,tension:.4,pointRadius:4}],baseOpts());
   const bShowT=fBrand?[fBrand]:D.brands_all;
   mkChart('ch-bm-stack','bar',months,bShowT.map(b=>{return{label:b,data:months.map(m=>D.brand_month[b]?.[m]||0),backgroundColor:BCOL[b]||'#8b949e'}}),stackedOpts());
   const o1=baseOpts();o1.plugins.legend=legendOpts;
