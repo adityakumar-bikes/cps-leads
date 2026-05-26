@@ -17,7 +17,9 @@ Run via GitHub Actions:
 
 import gzip, io, json, os, zipfile, csv, sys, re, socket, time
 from collections import defaultdict, Counter
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
+IST = timezone(timedelta(hours=5, minutes=30))
 
 # Large Bajaj files need longer timeout (default is ~60s)
 socket.setdefaulttimeout(600)   # 10 minutes
@@ -335,6 +337,7 @@ def build_aggregations(all_rows):
         "lt_month":      {k: {m: v.get(m,0) for m in months_present} for k,v in lt_month.items()},
         "model_brand":   dict(model_brand),
         "last_updated":  datetime.now(timezone.utc).strftime("%d %b %Y, %H:%M UTC"),
+        # version and deployed_at are injected by main() after this returns
     }
 
 
@@ -344,10 +347,11 @@ def main():
     os.makedirs(DATA_DIR, exist_ok=True)
 
     # Load manifest
-    manifest = {"processed": {}, "last_run": None}
+    manifest = {"processed": {}, "last_run": None, "version": 0}
     if os.path.exists(MANIFEST_F):
         with open(MANIFEST_F) as f:
             manifest = json.load(f)
+        manifest.setdefault("version", 0)
 
     # Load existing leads (gzip-compressed to keep repo size manageable)
     all_rows = []
@@ -429,6 +433,13 @@ def main():
     dash = build_aggregations(all_rows)
     print(f"Total: {dash['total']:,} | Brands: {list(dash['by_brand'].keys())}")
 
+    # Stamp version + deployment timestamp (IST)
+    new_version = manifest.get("version", 0) + 1
+    now_ist = datetime.now(IST)
+    dash["version"]     = new_version
+    dash["deployed_at"] = now_ist.strftime("%d %b %Y, %H:%M IST")
+    print(f"Version: v{new_version}  |  Deployed at: {dash['deployed_at']}")
+
     with open(DASH_F, "w") as f:
         json.dump(dash, f)
     print(f"Saved dashboard_data.json")
@@ -451,8 +462,9 @@ def main():
         else:
             print(f"Warning: could not find D block in index.html to update")
 
-    # Update manifest
+    # Update manifest (persist new version number)
     manifest["last_run"] = datetime.now(timezone.utc).isoformat()
+    manifest["version"]  = new_version
     with open(MANIFEST_F, "w") as f:
         json.dump(manifest, f, indent=2)
     print(f"Updated manifest.json")
