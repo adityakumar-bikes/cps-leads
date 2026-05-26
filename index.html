@@ -57,8 +57,8 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .crow{display:grid;gap:16px;margin-bottom:16px;}
 .crow.c2{grid-template-columns:1fr 1fr;} .crow.c3{grid-template-columns:1fr 1fr 1fr;}
 .crow.c1{grid-template-columns:1fr;}
-.cbox{background:var(--bg2);border-radius:8px;padding:18px;} .cbox.wide{grid-column:1/-1;}
-.ctitle{font-size:.78rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:14px;}
+.cbox{background:var(--bg2);border-radius:8px;padding:12px;} .cbox.wide{grid-column:1/-1;}
+.ctitle{font-size:.78rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;}
 .tbl{width:100%;border-collapse:collapse;font-size:.8rem;}
 .tbl th{background:var(--bg);color:var(--muted);padding:9px 11px;text-align:left;font-weight:600;text-transform:uppercase;letter-spacing:.4px;font-size:.72rem;border-bottom:2px solid var(--border);}
 .tbl td{padding:8px 11px;border-bottom:1px solid var(--border);color:var(--txt);}
@@ -119,54 +119,54 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 
 <div class="tc active" id="tc-overview"><div class="panel">
   <div class="crow c2">
-    <div class="cbox"><div class="ctitle">Lead Volume by Brand</div><canvas id="ch-brand-bar" height="220"></canvas></div>
-    <div class="cbox"><div class="ctitle">Source Mix</div><canvas id="ch-medium-pie" height="220"></canvas></div>
+    <div class="cbox"><div class="ctitle">Lead Volume by Brand</div><canvas id="ch-brand-bar" height="140"></canvas></div>
+    <div class="cbox"><div class="ctitle">Source Mix</div><canvas id="ch-medium-pie" height="140"></canvas></div>
   </div>
   <div class="crow c2">
-    <div class="cbox"><div class="ctitle">Monthly Trend</div><canvas id="ch-trend-line" height="200"></canvas></div>
-    <div class="cbox"><div class="ctitle">Lead Type Distribution</div><canvas id="ch-lt-bar" height="200"></canvas></div>
+    <div class="cbox"><div class="ctitle">Monthly Trend</div><canvas id="ch-trend-line" height="130"></canvas></div>
+    <div class="cbox"><div class="ctitle">Lead Type Distribution</div><canvas id="ch-lt-bar" height="130"></canvas></div>
   </div>
   <div class="crow c2">
-    <div class="cbox"><div class="ctitle">Top 10 States</div><canvas id="ch-state-bar" height="220"></canvas></div>
-    <div class="cbox"><div class="ctitle">Top 10 Cities</div><canvas id="ch-city-bar" height="220"></canvas></div>
+    <div class="cbox"><div class="ctitle">Top 10 States</div><canvas id="ch-state-bar" height="140"></canvas></div>
+    <div class="cbox"><div class="ctitle">Top 10 Cities</div><canvas id="ch-city-bar" height="140"></canvas></div>
   </div>
 </div></div>
 
 <div class="tc" id="tc-brand"><div class="panel">
   <div class="crow c2">
-    <div class="cbox"><div class="ctitle">Brand Volume</div><canvas id="ch-brand2" height="240"></canvas></div>
-    <div class="cbox"><div class="ctitle">Brand × Source</div><canvas id="ch-brand-med" height="240"></canvas></div>
+    <div class="cbox"><div class="ctitle">Brand Volume</div><canvas id="ch-brand2" height="150"></canvas></div>
+    <div class="cbox"><div class="ctitle">Brand × Source</div><canvas id="ch-brand-med" height="150"></canvas></div>
   </div>
-  <div class="crow c1"><div class="cbox"><div class="ctitle">Brand × Lead Type</div><canvas id="ch-brand-lt" height="200"></canvas></div></div>
+  <div class="crow c1"><div class="cbox"><div class="ctitle">Brand × Lead Type</div><canvas id="ch-brand-lt" height="130"></canvas></div></div>
   <div class="cbox"><div class="ctitle">Brand Summary</div><div id="tbl-brand-wrap"></div></div>
 </div></div>
 
 <div class="tc" id="tc-source"><div class="panel">
   <div class="crow c2">
-    <div class="cbox"><div class="ctitle">Source Volume</div><canvas id="ch-med2" height="220"></canvas></div>
-    <div class="cbox"><div class="ctitle">Source × Brand</div><canvas id="ch-med-brand" height="220"></canvas></div>
+    <div class="cbox"><div class="ctitle">Source Volume</div><canvas id="ch-med2" height="140"></canvas></div>
+    <div class="cbox"><div class="ctitle">Source × Brand</div><canvas id="ch-med-brand" height="140"></canvas></div>
   </div>
-  <div class="crow c1"><div class="cbox wide"><div class="ctitle">Source Trend by Month</div><canvas id="ch-med-trend" height="180"></canvas></div></div>
-  <div class="cbox"><div class="ctitle">Source × Lead Type</div><canvas id="ch-med-lt" height="200"></canvas></div>
+  <div class="crow c1"><div class="cbox wide"><div class="ctitle">Source Trend by Month</div><canvas id="ch-med-trend" height="120"></canvas></div></div>
+  <div class="cbox"><div class="ctitle">Source × Lead Type</div><canvas id="ch-med-lt" height="130"></canvas></div>
 </div></div>
 
 <div class="tc" id="tc-leadtype"><div class="panel">
   <div class="crow c2">
-    <div class="cbox"><div class="ctitle">Lead Type Volume</div><canvas id="ch-lt2" height="240"></canvas></div>
-    <div class="cbox"><div class="ctitle">Lead Type × Source</div><canvas id="ch-lt-med" height="240"></canvas></div>
+    <div class="cbox"><div class="ctitle">Lead Type Volume</div><canvas id="ch-lt2" height="150"></canvas></div>
+    <div class="cbox"><div class="ctitle">Lead Type × Source</div><canvas id="ch-lt-med" height="150"></canvas></div>
   </div>
-  <div class="crow c1"><div class="cbox"><div class="ctitle">Lead Type Monthly Trend</div><canvas id="ch-lt-trend" height="180"></canvas></div></div>
+  <div class="crow c1"><div class="cbox"><div class="ctitle">Lead Type Monthly Trend</div><canvas id="ch-lt-trend" height="120"></canvas></div></div>
   <div class="cbox"><div class="ctitle">Lead Type Table</div><div id="tbl-lt-wrap"></div></div>
 </div></div>
 
 <div class="tc" id="tc-geo"><div class="panel">
   <div class="crow c2">
-    <div class="cbox"><div class="ctitle">Top 15 States</div><canvas id="ch-st-bar" height="280"></canvas></div>
-    <div class="cbox"><div class="ctitle">State × Brand Breakdown</div><canvas id="ch-st-brand" height="280"></canvas></div>
+    <div class="cbox"><div class="ctitle">Top 15 States</div><canvas id="ch-st-bar" height="170"></canvas></div>
+    <div class="cbox"><div class="ctitle">State × Brand Breakdown</div><canvas id="ch-st-brand" height="170"></canvas></div>
   </div>
   <div class="crow c2">
-    <div class="cbox"><div class="ctitle">State × Source</div><canvas id="ch-st-med" height="240"></canvas></div>
-    <div class="cbox"><div class="ctitle">Top 15 Cities</div><canvas id="ch-city2" height="240"></canvas></div>
+    <div class="cbox"><div class="ctitle">State × Source</div><canvas id="ch-st-med" height="150"></canvas></div>
+    <div class="cbox"><div class="ctitle">Top 15 Cities</div><canvas id="ch-city2" height="150"></canvas></div>
   </div>
   <div class="cbox"><div class="ctitle">State / City Table</div>
     <div class="srch-row">
@@ -178,7 +178,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 </div></div>
 
 <div class="tc" id="tc-dealer"><div class="panel">
-  <div class="crow c1"><div class="cbox"><div class="ctitle">Top 20 Dealers</div><canvas id="ch-dealer-bar" height="260"></canvas></div></div>
+  <div class="crow c1"><div class="cbox"><div class="ctitle">Top 20 Dealers</div><canvas id="ch-dealer-bar" height="160"></canvas></div></div>
   <div class="cbox"><div class="ctitle">All Dealers (1,377 dealers)</div>
     <div class="srch-row">
       <input class="srch" id="dealer-srch" placeholder="Search dealer name…" oninput="renderDealerTable()">
@@ -190,8 +190,8 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 
 <div class="tc" id="tc-model"><div class="panel">
   <div class="crow c2">
-    <div class="cbox"><div class="ctitle">Top 15 Models</div><canvas id="ch-model-bar" height="280"></canvas></div>
-    <div class="cbox"><div class="ctitle">Models × Brand</div><canvas id="ch-model-brand" height="280"></canvas></div>
+    <div class="cbox"><div class="ctitle">Top 15 Models</div><canvas id="ch-model-bar" height="170"></canvas></div>
+    <div class="cbox"><div class="ctitle">Models × Brand</div><canvas id="ch-model-brand" height="170"></canvas></div>
   </div>
   <div class="cbox"><div class="ctitle">All Models</div>
     <div class="srch-row">
@@ -203,11 +203,11 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 </div></div>
 
 <div class="tc" id="tc-trend"><div class="panel">
-  <div class="crow c1"><div class="cbox"><div class="ctitle">Overall Monthly Trend</div><canvas id="ch-trend2" height="200"></canvas></div></div>
-  <div class="crow c1"><div class="cbox"><div class="ctitle">Brand × Month (Stacked)</div><canvas id="ch-bm-stack" height="220"></canvas></div></div>
+  <div class="crow c1"><div class="cbox"><div class="ctitle">Overall Monthly Trend</div><canvas id="ch-trend2" height="130"></canvas></div></div>
+  <div class="crow c1"><div class="cbox"><div class="ctitle">Brand × Month (Stacked)</div><canvas id="ch-bm-stack" height="140"></canvas></div></div>
   <div class="crow c2">
-    <div class="cbox"><div class="ctitle">Source × Month</div><canvas id="ch-med-trend2" height="220"></canvas></div>
-    <div class="cbox"><div class="ctitle">Lead Type × Month (Top 5)</div><canvas id="ch-lt-trend2" height="220"></canvas></div>
+    <div class="cbox"><div class="ctitle">Source × Month</div><canvas id="ch-med-trend2" height="140"></canvas></div>
+    <div class="cbox"><div class="ctitle">Lead Type × Month (Top 5)</div><canvas id="ch-lt-trend2" height="140"></canvas></div>
   </div>
 </div></div>
 
