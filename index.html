@@ -289,7 +289,6 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
         <option value="lt">Lead Type</option>
         <option value="state">State</option>
         <option value="city">City</option>
-        <option value="dealer">Dealer</option>
       </select></div>
     <div class="fg" id="mom-sort-grp"><label>Sort by</label>
       <select id="mom-sort" onchange="renderMoM()" style="background:var(--card);color:var(--txt);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:.82rem;cursor:pointer;outline:none">
@@ -818,19 +817,49 @@ function renderDealerTable(){dlrCurPage=0;renderDlrPage();}
 function dlrPage(d){dlrCurPage+=d;renderDlrPage();}
 function renderDlrPage(){
   const rows=getDlrRows();
+  const months=_hasF(fMonth)?fMonth:D.months_present;
   const start=dlrCurPage*DLR_PG,end=Math.min(start+DLR_PG,rows.length);
   document.getElementById('dlr-pg-info').textContent=`${start+1}–${end} of ${rows.length.toLocaleString()}`;
   document.getElementById('dlr-prev').disabled=dlrCurPage===0;
   document.getElementById('dlr-next').disabled=end>=rows.length;
   document.getElementById('dlr-title').textContent=`All Dealers (${rows.length.toLocaleString()} dealers)`;
   const subTotal=rows.reduce((s,[,c])=>s+c,0);
-  let html=`<table class="tbl"><thead><tr><th>#</th><th>Dealer</th><th>City</th><th>State</th><th>Total</th><th>Share %</th></tr></thead><tbody>`;
-  html+=`<tr style="background:rgba(108,99,255,.1);font-weight:700;border-bottom:2px solid var(--border)"><td style="color:var(--muted)">∑</td><td>Subtotal</td><td style="color:var(--muted)">${rows.length.toLocaleString()} dealers</td><td>—</td><td class="num">${fmtN(subTotal)}</td><td class="num">100%</td></tr>`;
+  // Grand month subtotals across ALL filtered rows (not just current page)
+  const grandMD={};
+  for(const m of months)grandMD[m]=rows.reduce((s,[name,cnt])=>{const scale=cnt/(D.by_dealer[name]||1);return s+Math.round((D.dealer_month?.[name]?.[m]||0)*scale);},0);
+  const grandMax=Math.max(1,...months.map(m=>grandMD[m]||0));
+  let html=`<table class="tbl" style="font-size:.76rem"><thead><tr style="position:sticky;top:0;z-index:3">`;
+  html+=`<th style="position:sticky;left:0;z-index:4;background:var(--bg)">#</th>`;
+  html+=`<th style="position:sticky;left:26px;z-index:4;background:var(--bg);min-width:160px">Dealer</th>`;
+  html+=`<th style="min-width:90px">City</th><th style="min-width:70px">State</th>`;
+  html+=`<th class="num" style="min-width:70px">Total</th>`;
+  html+=`<th class="num" style="min-width:68px">Share%</th>`;
+  for(const m of months)html+=`<th class="num" style="min-width:68px;white-space:nowrap">${m}</th>`;
+  html+=`</tr></thead><tbody>`;
+  // Subtotal row
+  html+=`<tr style="background:rgba(108,99,255,.1);font-weight:700;border-bottom:2px solid var(--border)">`;
+  html+=`<td style="position:sticky;left:0;background:rgba(108,99,255,.1);color:var(--muted);z-index:1">∑</td>`;
+  html+=`<td style="position:sticky;left:26px;background:rgba(108,99,255,.1);z-index:1">Subtotal (${rows.length.toLocaleString()})</td>`;
+  html+=`<td></td><td></td><td class="num">${fmtN(subTotal)}</td><td class="num" style="color:var(--muted);font-size:.72rem">100%</td>`;
+  for(const m of months){const v=grandMD[m]||0;const heat=grandMax>0?Math.round(v/grandMax*100):0;html+=`<td class="num" style="background:rgba(77,171,247,${(heat*.003).toFixed(3)})">${v>0?fmtN(v):'—'}</td>`;}
+  html+=`</tr>`;
+  // Data rows
   rows.slice(start,end).forEach(([name,cnt],i)=>{
     const city=dlrCity(name);const state=dlrState(name);
-    const share=subTotal>0?(cnt/subTotal*100).toFixed(1)+'%':'—';
-    const barW=subTotal>0?Math.round(cnt/subTotal*100):0;
-    html+=`<tr><td style="color:var(--muted)">${start+i+1}</td><td><strong>${name}</strong></td><td>${city||'—'}</td><td style="color:var(--muted)">${state||'—'}</td><td class="num">${fmtN(cnt)}</td><td class="num" style="min-width:90px"><div style="display:flex;align-items:center;gap:6px"><span>${share}</span><div style="flex:1;height:4px;border-radius:2px;background:var(--border)"><div style="height:4px;border-radius:2px;background:var(--hl);width:${barW}%"></div></div></div></td></tr>`;
+    const dot=name.indexOf(' · ');const dispName=dot>=0?name.slice(dot+3):name;
+    const sharePct=subTotal>0?cnt/subTotal*100:0;
+    const shareBar=Math.round(sharePct);
+    const scale=cnt/(D.by_dealer[name]||1);
+    // Per-row max for heat colouring
+    const rMax=Math.max(1,...months.map(m=>Math.round((D.dealer_month?.[name]?.[m]||0)*scale)));
+    html+=`<tr>`;
+    html+=`<td style="position:sticky;left:0;background:var(--bg2);color:var(--muted);z-index:1">${start+i+1}</td>`;
+    html+=`<td style="position:sticky;left:26px;background:var(--bg2);z-index:1" title="${name}"><strong>${dispName.length>35?dispName.slice(0,35)+'…':dispName}</strong></td>`;
+    html+=`<td style="font-size:.73rem">${city||'—'}</td><td style="color:var(--muted);font-size:.73rem">${state||'—'}</td>`;
+    html+=`<td class="num">${fmtN(cnt)}</td>`;
+    html+=`<td class="num" style="position:relative;overflow:hidden"><span style="position:absolute;left:0;top:0;height:100%;width:${shareBar}%;background:rgba(108,99,255,.13);pointer-events:none"></span><span style="position:relative">${sharePct.toFixed(1)}%</span></td>`;
+    for(const m of months){const v=Math.round((D.dealer_month?.[name]?.[m]||0)*scale);const heat=rMax>0?Math.round(v/rMax*100):0;html+=`<td class="num" style="background:rgba(77,171,247,${(heat*.003).toFixed(3)})">${v>0?fmtN(v):'—'}</td>`;}
+    html+=`</tr>`;
   });
   html+='</tbody></table>';document.getElementById('tbl-dealer-wrap').innerHTML=html;
 }
