@@ -640,10 +640,37 @@ function filteredLtTotals(){
   for(const lt of Object.keys(D.by_lt)){
     const ltTot=D.by_lt[lt]||1;
     let v=ltTot;
-    if(_hasF(fBrand))v=fBrand.reduce((s,b)=>s+(D.brand_lt?.[b]?.[lt]||0),0);
-    else if(_hasF(fBU))v=fBU.reduce((s,bu)=>s+(D.bu_lt?.[bu]?.[lt]||0),0);
-    if(_hasF(fMedium)){const r=_sumKeys(D.lt_medium?.[lt]||{},fMedium)/ltTot;v=Math.round(v*r);}
-    if(_hasF(fMonth)){const r=_sumKeys(D.lt_month?.[lt]||{},fMonth)/ltTot;v=Math.round(v*r);}
+    if(_hasF(fBU)){
+      if(_hasF(fBrand)){
+        // Brand+BU: scale each BU's LT count by brand fraction within that BU
+        v=0;
+        for(const bu of fBU){
+          const buTot=Object.values(D.bu_brand?.[bu]||{}).reduce((a,c)=>a+c,0);
+          const brandInBu=fBrand.reduce((s,b)=>s+(D.bu_brand?.[bu]?.[b]||0),0);
+          const bFrac=buTot>0?brandInBu/buTot:0;
+          if(bFrac)v+=Math.round((D.bu_lt?.[bu]?.[lt]||0)*bFrac);
+        }
+      } else {
+        v=fBU.reduce((s,bu)=>s+(D.bu_lt?.[bu]?.[lt]||0),0);
+      }
+      if(_hasF(fMedium)){const r=_sumKeys(D.lt_medium?.[lt]||{},fMedium)/ltTot;v=Math.round(v*r);}
+      if(_hasF(fMonth)){
+        // Use BU's own monthly fraction weighted by brand presence per BU
+        const buBrandTot=fBU.reduce((s,bu)=>{const bInBu=_hasF(fBrand)?fBrand.reduce((ss,b)=>ss+(D.bu_brand?.[bu]?.[b]||0),0):(D.by_bu?.[bu]||0);return s+bInBu;},0)||1;
+        let moSc=0;
+        for(const bu of fBU){
+          const buT=D.by_bu?.[bu]||1;
+          const bInBu=_hasF(fBrand)?fBrand.reduce((s,b)=>s+(D.bu_brand?.[bu]?.[b]||0),0):(D.by_bu?.[bu]||0);
+          if(!bInBu)continue;
+          moSc+=(_sumKeys(D.bu_month?.[bu]||{},fMonth)/buT)*(bInBu/buBrandTot);
+        }
+        v=Math.round(v*moSc);
+      }
+    } else {
+      if(_hasF(fBrand))v=fBrand.reduce((s,b)=>s+(D.brand_lt?.[b]?.[lt]||0),0);
+      if(_hasF(fMedium)){const r=_sumKeys(D.lt_medium?.[lt]||{},fMedium)/ltTot;v=Math.round(v*r);}
+      if(_hasF(fMonth)){const r=_sumKeys(D.lt_month?.[lt]||{},fMonth)/ltTot;v=Math.round(v*r);}
+    }
     if(!anyF)v=ltTot;
     out[lt]=v;
   }
@@ -655,7 +682,7 @@ function renderOverview(){
   const mt=filteredMediumTotals();const mK=Object.keys(mt).filter(k=>mt[k]>0);
   mkChart('ch-medium-pie','doughnut',mK,[{data:mK.map(k=>mt[k]),backgroundColor:col(mK,MCOL,'#8b949e'),borderWidth:2,borderColor:'#1c2330'}],pieOpts());
   const months=_hasF(fMonth)?[...fMonth].sort((a,b)=>D.months_present.indexOf(a)-D.months_present.indexOf(b)):D.months_present;
-  const td=months.map(m=>{if(_hasF(fBrand)){const mr=_hasF(fMedium)?1:1;return fBrand.reduce((s,b)=>s+(D.brand_month[b]?.[m]||0),0);}if(_hasF(fBU))return fBU.reduce((s,bu)=>s+(D.bu_month?.[bu]?.[m]||0),0);if(_hasF(fMedium))return fMedium.reduce((s,med)=>s+(D.medium_month[med]?.[m]||0),0);return D.by_month[m]||0;});
+  const td=months.map(m=>{if(_hasF(fBU)){let t=0;for(const bu of fBU){const buT=D.by_bu?.[bu]||1;const buMo=D.bu_month?.[bu]?.[m]||0;const bFrac=_hasF(fBrand)?fBrand.reduce((s,b)=>s+(D.bu_brand?.[bu]?.[b]||0),0)/buT:1;const mFrac=_hasF(fMedium)?_sumKeys(D.bu_medium?.[bu]||{},fMedium)/buT:1;t+=Math.round(buMo*bFrac*mFrac);}return t;}if(_hasF(fBrand))return fBrand.reduce((s,b)=>{const mr=_hasF(fMedium)?_sumKeys(D.brand_medium[b]||{},fMedium)/(D.by_brand[b]||1):1;return s+Math.round((D.brand_month[b]?.[m]||0)*mr);},0);if(_hasF(fMedium))return fMedium.reduce((s,med)=>s+(D.medium_month[med]?.[m]||0),0);return D.by_month[m]||0;});
   mkChart('ch-trend-line','line',months,[{data:td,borderColor:'#e94560',backgroundColor:'rgba(233,69,96,.1)',fill:true,tension:.4,pointRadius:4,pointBackgroundColor:'#e94560'}],baseOpts());
   const ltO=filteredLtTotals();const lt10=topN(ltO,10);
   mkChart('ch-lt-bar','bar',lt10.map(e=>e[0]),[{data:lt10.map(e=>e[1]),backgroundColor:col(lt10.map(e=>e[0]),LTCOL,'#6C63FF'),borderRadius:4}],hBarOpts());
@@ -689,25 +716,14 @@ function renderSource(){
   mkChart('ch-med-brand','bar',mE.map(e=>e[0]),bShowS.map(b=>{const bR=btS[b]/(D.by_brand[b]||1);return{label:b,data:mE.map(([m])=>Math.round((D.brand_medium[b]?.[m]||0)*bR)),backgroundColor:BCOL[b]||'#8b949e'}}),stackedOpts());
   const months=_hasF(fMonth)?[...fMonth].sort((a,b)=>D.months_present.indexOf(a)-D.months_present.indexOf(b)):D.months_present;
   const o=baseOpts();o.plugins.legend=legendOpts;
-  const _bmAllS=_hasF(fBrand)?_mergeSubs(fBrand,D.brand_medium):{};const _bmTS=Object.values(_bmAllS).reduce((a,c)=>a+c,0);const _buMedS=_hasF(fBU)?_mergeSubs(fBU,D.bu_medium):{};const _buMTS=Object.values(_buMedS).reduce((a,c)=>a+c,0);const mTrend=_hasF(fBrand)?D.mediums_all.map(m=>{const ratio=_bmTS?(_bmAllS[m]||0)/_bmTS:0;return{label:m,data:months.map(mo=>Math.round(fBrand.reduce((s,b)=>s+(D.brand_month[b]?.[mo]||0),0)*ratio)),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};}):_hasF(fBU)?D.mediums_all.map(m=>{const ratio=_buMTS?(_buMedS[m]||0)/_buMTS:0;return{label:m,data:months.map(mo=>Math.round(fBU.reduce((s,bu)=>s+(D.bu_month?.[bu]?.[mo]||0),0)*ratio)),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};}):D.mediums_all.map(m=>{return{label:m,data:months.map(mo=>D.medium_month[m]?.[mo]||0),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};});
+  const mTrend=_hasF(fBU)?D.mediums_all.map(med=>{return{label:med,data:months.map(mo=>{let val=0;for(const bu of fBU){const buT=D.by_bu?.[bu]||1;const bFrac=_hasF(fBrand)?fBrand.reduce((s,b)=>s+(D.bu_brand?.[bu]?.[b]||0),0)/buT:1;val+=(D.bu_month?.[bu]?.[mo]||0)*(D.bu_medium?.[bu]?.[med]||0)/buT*bFrac;}return Math.round(val);}),borderColor:MCOL[med]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};}):_hasF(fBrand)?D.mediums_all.map(m=>{const _bmAllS=_mergeSubs(fBrand,D.brand_medium);const _bmTS=Object.values(_bmAllS).reduce((a,c)=>a+c,0);const ratio=_bmTS?(_bmAllS[m]||0)/_bmTS:0;return{label:m,data:months.map(mo=>Math.round(fBrand.reduce((s,b)=>s+(D.brand_month[b]?.[mo]||0),0)*ratio)),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};}):D.mediums_all.map(m=>{return{label:m,data:months.map(mo=>D.medium_month[m]?.[mo]||0),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};});
   mkChart('ch-med-trend','line',months,mTrend,o);
   const ltFltS=filteredLtTotals();const topLtsS=topN(ltFltS,8).map(e=>e[0]);
   mkChart('ch-med-lt','bar',D.mediums_all,topLtsS.map(lt=>{const lSc=(ltFltS[lt]||0)/(D.by_lt[lt]||1);return{label:lt,data:D.mediums_all.map(m=>Math.round((D.lt_medium[lt]?.[m]||0)*lSc)),backgroundColor:LTCOL[lt]||'#8b949e'}}),stackedOpts());
 }
 function renderLeadType(){
-  // Build filtered lt totals respecting ALL active filters
   const anyF=_hasF(fBrand)||_hasF(fBU)||_hasF(fMedium)||_hasF(fMonth);
-  const ltRaw={};
-  for(const lt of Object.keys(D.by_lt)){
-    const ltTot=D.by_lt[lt]||1;
-    let v=ltTot;
-    if(_hasF(fBrand)) v=fBrand.reduce((s,b)=>s+(D.brand_lt?.[b]?.[lt]||0),0);
-    else if(_hasF(fBU))  v=fBU.reduce((s,bu)=>s+(D.bu_lt?.[bu]?.[lt]||0),0);
-    if(_hasF(fMedium)){const r=_sumKeys(D.lt_medium?.[lt]||{},fMedium)/ltTot;v=Math.round(v*r);}
-    if(_hasF(fMonth)){const r=_sumKeys(D.lt_month?.[lt]||{},fMonth)/ltTot;v=Math.round(v*r);}
-    if(!anyF) v=ltTot;
-    ltRaw[lt]=v;
-  }
+  const ltRaw=filteredLtTotals();
   const ltE=Object.entries(ltRaw).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
   const total=ltE.reduce((a,[,v])=>a+v,0)||1;
   const ltMedFiltered=(lt,m)=>{const raw=D.lt_medium?.[lt]?.[m]||0;if(!anyF)return raw;return Math.round(raw*(ltRaw[lt]||0)/(D.by_lt[lt]||1));};
@@ -1000,10 +1016,11 @@ function renderMdlPage(){
 function renderTrend(){
   const months=_hasF(fMonth)?[...fMonth].sort((a,b)=>D.months_present.indexOf(a)-D.months_present.indexOf(b)):D.months_present;
   const bShowT=_hasF(fBrand)?fBrand:_hasF(fBU)?[...new Set(Object.keys(_mergeSubs(fBU,D.bu_brand)))]:D.brands_all;
-  const _buBrandMT=_hasF(fBU)?_mergeSubs(fBU,D.bu_brand):{};const _buMonthMT=_hasF(fBU)?_mergeSubs(fBU,D.bu_month):{};const _buTotalMT=Object.values(_buBrandMT).reduce((a,c)=>a+c,0);mkChart('ch-bm-stack','bar',months,bShowT.map(b=>{return{label:b,data:months.map(m=>{if(_hasF(fBU)&&!_hasF(fBrand)){const r=_buTotalMT&&_buBrandMT[b]?(_buBrandMT[b]/_buTotalMT):0;return Math.round((_buMonthMT[m]||0)*r);}const _r=D.brand_month[b]?.[m]||0;const _mr=_hasF(fMedium)?_sumKeys(D.brand_medium[b]||{},fMedium)/(D.by_brand[b]||1):1;return Math.round(_r*_mr);}),backgroundColor:BCOL[b]||'#8b949e'}}),stackedOpts());
+  mkChart('ch-bm-stack','bar',months,bShowT.map(b=>{return{label:b,data:months.map(m=>{if(_hasF(fBU)){// BU active: use BU monthly data scaled by brand fraction per BU
+    const bTotal=D.by_brand[b]||1;const mr=_hasF(fMedium)?_sumKeys(D.brand_medium[b]||{},fMedium)/bTotal:1;let val=0;for(const bu of fBU){const buT=D.by_bu?.[bu]||1;val+=(D.bu_month?.[bu]?.[m]||0)*(D.bu_brand?.[bu]?.[b]||0)/buT;}return Math.round(val*mr);}const _r=D.brand_month[b]?.[m]||0;const _mr=_hasF(fMedium)?_sumKeys(D.brand_medium[b]||{},fMedium)/(D.by_brand[b]||1):1;return Math.round(_r*_mr);}),backgroundColor:BCOL[b]||'#8b949e'}}),stackedOpts());
   const o1=baseOpts();o1.plugins.legend=legendOpts;
   const mShowT=_hasF(fMedium)?fMedium:D.mediums_all;
-  const _bmAllT=_hasF(fBrand)?_mergeSubs(fBrand,D.brand_medium):{};const _bmTT=Object.values(_bmAllT).reduce((a,c)=>a+c,0);const med2=_hasF(fBrand)?mShowT.map(m=>{const ratio=_bmTT?(_bmAllT[m]||0)/_bmTT:0;return{label:m,data:months.map(mo=>Math.round(fBrand.reduce((s,b)=>s+(D.brand_month[b]?.[mo]||0),0)*ratio)),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};}):_hasF(fBU)?mShowT.map(m=>{const buMed2=_mergeSubs(fBU,D.bu_medium)||{};const buT2=Object.values(buMed2).reduce((a,c)=>a+c,0);const ratio=buT2?(buMed2[m]||0)/buT2:0;return{label:m,data:months.map(mo=>Math.round(fBU.reduce((s,bu)=>s+(D.bu_month?.[bu]?.[mo]||0),0)*ratio)),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};}):mShowT.map(m=>{return{label:m,data:months.map(mo=>D.medium_month[m]?.[mo]||0),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};});
+  const med2=_hasF(fBU)?mShowT.map(med=>{return{label:med,data:months.map(mo=>{let val=0;for(const bu of fBU){const buT=D.by_bu?.[bu]||1;const bFrac=_hasF(fBrand)?fBrand.reduce((s,b)=>s+(D.bu_brand?.[bu]?.[b]||0),0)/buT:1;val+=(D.bu_month?.[bu]?.[mo]||0)*(D.bu_medium?.[bu]?.[med]||0)/buT*bFrac;}return Math.round(val);}),borderColor:MCOL[med]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};}):_hasF(fBrand)?mShowT.map(m=>{const _bmAllT=_mergeSubs(fBrand,D.brand_medium);const _bmTT=Object.values(_bmAllT).reduce((a,c)=>a+c,0);const ratio=_bmTT?(_bmAllT[m]||0)/_bmTT:0;return{label:m,data:months.map(mo=>Math.round(fBrand.reduce((s,b)=>s+(D.brand_month[b]?.[mo]||0),0)*ratio)),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};}):mShowT.map(m=>{return{label:m,data:months.map(mo=>D.medium_month[m]?.[mo]||0),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};});
   mkChart('ch-med-trend2','line',months,med2,o1);
   const ltFltT2=filteredLtTotals();const top5lt=topN(ltFltT2,5).map(e=>e[0]);
   const o2=baseOpts();o2.plugins.legend=legendOpts;
@@ -1028,19 +1045,15 @@ function _getMoMRows(dim){
     return Math.min(Math.max(s,0),1);
   }
   if(dim==='brand'){
-    const show=_hasF(fBrand)?fBrand:D.brands_all;
-    const buBM=_hasF(fBU)?_mergeSubs(fBU,D.bu_brand):{};
-    const buMM=_hasF(fBU)?_mergeSubs(fBU,D.bu_month):{};
-    const buT=Object.values(buBM).reduce((a,c)=>a+c,0);
+    const show=_hasF(fBrand)?fBrand:_hasF(fBU)?Object.keys(_mergeSubs(fBU,D.bu_brand)):D.brands_all;
     for(const b of show){
-      if(_hasF(fBU)&&!_hasF(fBrand)&&!(b in buBM))continue;
+      if(_hasF(fBU)&&!fBU.some(bu=>(D.bu_brand?.[bu]?.[b]||0)>0))continue;
       const md={};const bTotal=D.by_brand[b]||1;
-      if(_hasF(fBU)&&!_hasF(fBrand)){
-        const r=buT?(buBM[b]||0)/buT:0;
-        const mr=_hasF(fMedium)?_sumKeys(D.brand_medium[b]||{},fMedium)/bTotal:1;
-        for(const m of months)md[m]=Math.round((buMM[m]||0)*r*mr);
-      }else{
-        const mr=_hasF(fMedium)?_sumKeys(D.brand_medium[b]||{},fMedium)/bTotal:1;
+      const mr=_hasF(fMedium)?_sumKeys(D.brand_medium[b]||{},fMedium)/bTotal:1;
+      if(_hasF(fBU)){
+        // BU active: per-month value = Σ_bu [ bu_month[bu][m] * bu_brand[bu][b] / by_bu[bu] ]
+        for(const m of months){let val=0;for(const bu of fBU){const buT=D.by_bu?.[bu]||1;val+=(D.bu_month?.[bu]?.[m]||0)*(D.bu_brand?.[bu]?.[b]||0)/buT;}md[m]=Math.round(val*mr);}
+      } else {
         for(const m of months)md[m]=Math.round((D.brand_month[b]?.[m]||0)*mr);
       }
       pushRow(b,md);
@@ -1058,20 +1071,32 @@ function _getMoMRows(dim){
   }else if(dim==='source'){
     const show=_hasF(fMedium)?fMedium:D.mediums_all;
     for(const med of show){
-      const md={};const medTotal=D.by_medium?.[med]||1;
-      let scale=1;
-      if(_hasF(fBrand))scale=fBrand.reduce((s,b)=>s+(D.brand_medium[b]?.[med]||0),0)/medTotal;
-      else if(_hasF(fBU))scale=fBU.reduce((s,bu)=>s+(D.bu_medium?.[bu]?.[med]||0),0)/medTotal;
-      for(const m of months)md[m]=Math.round((D.medium_month[med]?.[m]||0)*scale);
+      const md={};
+      if(_hasF(fBU)){
+        // BU active: per-month = Σ_bu [ bu_month[bu][m] * (bu_medium[bu][med]/by_bu[bu]) * bFrac ]
+        for(const m of months){
+          let val=0;
+          for(const bu of fBU){
+            const buT=D.by_bu?.[bu]||1;
+            const bFrac=_hasF(fBrand)?fBrand.reduce((s,b)=>s+(D.bu_brand?.[bu]?.[b]||0),0)/buT:1;
+            val+=(D.bu_month?.[bu]?.[m]||0)*(D.bu_medium?.[bu]?.[med]||0)/buT*bFrac;
+          }
+          md[m]=Math.round(val);
+        }
+      } else {
+        const medTotal=D.by_medium?.[med]||1;
+        let scale=1;
+        if(_hasF(fBrand))scale=fBrand.reduce((s,b)=>s+(D.brand_medium[b]?.[med]||0),0)/medTotal;
+        for(const m of months)md[m]=Math.round((D.medium_month[med]?.[m]||0)*scale);
+      }
       pushRow(med,md);
     }
   }else if(dim==='lt'){
-    const ltAll=Object.keys(filteredDimCounts(D.by_lt,D.lt_brand,D.lt_medium,D.bu_lt));
-    for(const lt of ltAll){
-      const md={};const ltTotal=D.by_lt[lt]||1;let scale=1;
-      if(_hasF(fBrand))scale=_sumKeys(D.lt_brand?.[lt]||{},fBrand)/ltTotal;
-      else if(_hasF(fBU))scale=fBU.reduce((s,bu)=>s+(D.bu_lt?.[bu]?.[lt]||0),0)/ltTotal;
-      else if(_hasF(fMedium))scale=_sumKeys(D.lt_medium?.[lt]||{},fMedium)/ltTotal;
+    const ltFilt=filteredLtTotals();
+    for(const lt of Object.keys(ltFilt)){
+      const md={};const ltTotal=D.by_lt[lt]||1;
+      const filtTotal=ltFilt[lt]||0;if(!filtTotal)continue;
+      const scale=filtTotal/ltTotal;
       for(const m of months)md[m]=Math.round((D.lt_month?.[lt]?.[m]||0)*scale);
       pushRow(lt,md);
     }
