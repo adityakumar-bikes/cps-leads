@@ -573,6 +573,7 @@ def build_aggregations(all_rows, model_to_bu=None):
     bu_month  = defaultdict(dict); bu_state  = defaultdict(dict)
     bu_city   = defaultdict(dict); bu_dealer = defaultdict(dict)
     bu_lt     = defaultdict(dict); bu_model  = defaultdict(dict)
+    bu_city_month = defaultdict(lambda: defaultdict(dict))  # bu → city → month → count
     model_bu_map = {}   # model (canonical case) → BU string
     dealer_code_map = {}  # dealer_key → verified_dealer code
     dealer_name_map = {}  # dealer_key → Dealer_Name
@@ -646,6 +647,7 @@ def build_aggregations(all_rows, model_to_bu=None):
         inc(bu_month[bu],   month)
         inc(bu_state[bu],   state)
         inc(bu_city[bu],    city)
+        if city and month: inc(bu_city_month[bu][city], month)
         inc(bu_dealer[bu],  dealer)
         inc(bu_lt[bu],      lt)
         inc(bu_model[bu],   model)
@@ -700,6 +702,9 @@ def build_aggregations(all_rows, model_to_bu=None):
         "bu_month":      {k: {m: v.get(m,0) for m in months_present} for k,v in bu_month.items()},
         "bu_state":      dict(bu_state),
         "bu_city":       dict(bu_city),
+        "bu_city_month": {bu: {city: {m: v.get(m,0) for m in months_present}
+                               for city, v in cities.items()}
+                          for bu, cities in bu_city_month.items()},
         "bu_dealer":     dict(bu_dealer),
         "bu_lt":         dict(bu_lt),
         "bu_model":      dict(bu_model),
