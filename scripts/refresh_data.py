@@ -511,12 +511,13 @@ def build_aggregations(all_rows, model_to_bu=None):
         d_city  = str(r.get("City","")       or "").strip()
         d_state = str(r.get("State","")      or "").strip()
         dealer  = f"{crm_id} · {d_city}, {d_state}" if crm_id else "Unknown"
-        d_code  = str(r.get("verified_dealer","") or "").strip()
-        d_name  = str(r.get("Dealer_Name","")     or "").strip()
-        if dealer not in dealer_code_map and d_code:
-            dealer_code_map[dealer] = d_code
-        if dealer not in dealer_name_map and d_name:
-            dealer_name_map[dealer] = d_name
+        if dealer != "Unknown":
+            d_code = str(r.get("verified_dealer","") or "").strip()
+            d_name = str(r.get("Dealer_Name","")     or "").strip()
+            if dealer not in dealer_code_map and d_code:
+                dealer_code_map[dealer] = d_code
+            if dealer not in dealer_name_map and d_name:
+                dealer_name_map[dealer] = d_name
         model   = cm(r.get("model", ""))
         lt      = norm_lt(r.get("lead_type",""))
         month   = str(r.get("Lead_Month","") or "").strip()
