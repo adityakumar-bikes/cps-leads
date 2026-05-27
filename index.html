@@ -72,6 +72,34 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .pg-btn{background:var(--bg);border:1px solid var(--border);color:var(--txt);border-radius:5px;padding:5px 10px;font-size:.78rem;cursor:pointer;}
 .pg-btn:hover{border-color:var(--hl);} .pg-btn:disabled{opacity:.4;cursor:not-allowed;}
 @media(max-width:860px){.crow.c2,.crow.c3{grid-template-columns:1fr;}}
+/* ── Multi-Select Dropdown ──────────────────────────────────────────────── */
+.ms-wrap{position:relative;display:inline-block;}
+.ms-btn{background:var(--card);color:var(--txt);border:1px solid var(--border);border-radius:6px;
+         padding:5px 26px 5px 10px;font-size:.82rem;cursor:pointer;outline:none;min-width:110px;max-width:170px;
+         text-align:left;position:relative;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+         display:inline-block;vertical-align:middle;}
+.ms-btn:hover,.ms-btn.open{border-color:var(--hl);}
+.ms-btn::after{content:'▾';position:absolute;right:7px;top:50%;transform:translateY(-50%);font-size:.72rem;color:var(--muted);pointer-events:none;}
+.ms-drop{position:absolute;top:calc(100% + 4px);left:0;z-index:9999;background:var(--bg3);
+          border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.5);
+          min-width:200px;max-width:270px;overflow:hidden;}
+.ms-search-wrap{padding:8px 8px 4px;}
+.ms-search{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:5px;
+            padding:5px 8px;color:var(--txt);font-size:.78rem;outline:none;box-sizing:border-box;}
+.ms-search:focus{border-color:var(--hl);}
+.ms-list{max-height:210px;overflow-y:auto;padding:2px 0;}
+.ms-item{display:flex;align-items:center;gap:7px;padding:5px 10px;cursor:pointer;font-size:.81rem;
+          border-radius:3px;margin:1px 4px;user-select:none;}
+.ms-item:hover{background:var(--hover);}
+.ms-item input[type=checkbox]{accent-color:var(--hl);width:13px;height:13px;flex-shrink:0;cursor:pointer;}
+.ms-no-opts{padding:10px 14px;font-size:.78rem;color:var(--muted);}
+.ms-footer{display:flex;gap:5px;padding:6px 8px;border-top:1px solid var(--border);background:var(--bg);}
+.ms-footer button{flex:1;background:transparent;border:1px solid var(--border);color:var(--muted);
+                   border-radius:4px;padding:3px 5px;font-size:.73rem;cursor:pointer;transition:all .15s;}
+.ms-footer button:hover{border-color:var(--hl);color:var(--txt);}
+.ms-badge{background:var(--hl);color:#fff;border-radius:8px;padding:0 5px;font-size:.68rem;
+           font-weight:700;vertical-align:middle;margin-left:3px;}
+
 </style>
 </head>
 <body>
@@ -82,15 +110,50 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 </div>
 <div class="fbar">
   <div class="fg"><label>Brand</label>
-    <select id="f-brand" onchange="onBrandChange()"><option value="">All Brands</option></select></div>
+    <div class="ms-wrap" id="ms-wrap-brand">
+      <button class="ms-btn" id="ms-btn-brand" onclick="msToggle('brand')"><span id="ms-lbl-brand">All Brands</span></button>
+      <div class="ms-drop" id="ms-drop-brand" style="display:none">
+        <div class="ms-search-wrap"><input class="ms-search" id="ms-search-brand" placeholder="Search brands…" oninput="msFilter('brand')"></div>
+        <div class="ms-list" id="ms-list-brand"></div>
+        <div class="ms-footer"><button onclick="msAll('brand')">All</button><button onclick="msClear('brand')">Clear</button></div>
+      </div>
+    </div></div>
   <div class="fg"><label>Source</label>
-    <select id="f-medium" onchange="applyFilters()"><option value="">All Sources</option></select></div>
+    <div class="ms-wrap" id="ms-wrap-medium">
+      <button class="ms-btn" id="ms-btn-medium" onclick="msToggle('medium')"><span id="ms-lbl-medium">All Sources</span></button>
+      <div class="ms-drop" id="ms-drop-medium" style="display:none">
+        <div class="ms-search-wrap"><input class="ms-search" id="ms-search-medium" placeholder="Search sources…" oninput="msFilter('medium')"></div>
+        <div class="ms-list" id="ms-list-medium"></div>
+        <div class="ms-footer"><button onclick="msAll('medium')">All</button><button onclick="msClear('medium')">Clear</button></div>
+      </div>
+    </div></div>
   <div class="fg"><label>Month</label>
-    <select id="f-month" onchange="applyFilters()"><option value="">All Months</option></select></div>
+    <div class="ms-wrap" id="ms-wrap-month">
+      <button class="ms-btn" id="ms-btn-month" onclick="msToggle('month')"><span id="ms-lbl-month">All Months</span></button>
+      <div class="ms-drop" id="ms-drop-month" style="display:none">
+        <div class="ms-search-wrap"><input class="ms-search" id="ms-search-month" placeholder="Search months…" oninput="msFilter('month')"></div>
+        <div class="ms-list" id="ms-list-month"></div>
+        <div class="ms-footer"><button onclick="msAll('month')">All</button><button onclick="msClear('month')">Clear</button></div>
+      </div>
+    </div></div>
   <div class="fg"><label>BU</label>
-    <select id="f-bu" onchange="onBUChange()"><option value="">All BU</option></select></div>
+    <div class="ms-wrap" id="ms-wrap-bu">
+      <button class="ms-btn" id="ms-btn-bu" onclick="msToggle('bu')"><span id="ms-lbl-bu">All BU</span></button>
+      <div class="ms-drop" id="ms-drop-bu" style="display:none">
+        <div class="ms-search-wrap"><input class="ms-search" id="ms-search-bu" placeholder="Search BU…" oninput="msFilter('bu')"></div>
+        <div class="ms-list" id="ms-list-bu"></div>
+        <div class="ms-footer"><button onclick="msAll('bu')">All</button><button onclick="msClear('bu')">Clear</button></div>
+      </div>
+    </div></div>
   <div class="fg"><label>Model</label>
-    <select id="f-model" onchange="applyFilters()"><option value="">All Models</option></select></div>
+    <div class="ms-wrap" id="ms-wrap-model">
+      <button class="ms-btn" id="ms-btn-model" onclick="msToggle('model')"><span id="ms-lbl-model">All Models</span></button>
+      <div class="ms-drop" id="ms-drop-model" style="display:none">
+        <div class="ms-search-wrap"><input class="ms-search" id="ms-search-model" placeholder="Search models…" oninput="msFilter('model')"></div>
+        <div class="ms-list" id="ms-list-model"></div>
+        <div class="ms-footer"><button onclick="msAll('model')">All</button><button onclick="msClear('model')">Clear</button></div>
+      </div>
+    </div></div>
   <button class="fbtn" onclick="applyFilters()">Apply</button>
   <button class="freset" onclick="resetFilters()">Reset</button>
   <span id="filter-label" style="font-size:.78rem;color:var(--muted);margin-left:4px;"></span>
@@ -292,6 +355,75 @@ function pieOpts(){return{responsive:true,maintainAspectRatio:true,
   plugins:{legend:{display:true,position:'right',labels:{color:'#e6edf3',boxWidth:12,padding:10,font:{size:10}}},
     datalabels:{formatter:(v,ctx)=>{const t=ctx.dataset.data.reduce((a,b)=>a+b,0);return ((v/t)*100).toFixed(1)+'%';},color:'#fff',font:{weight:'bold',size:10}}}
 };}
+// ─── Multi-Select Engine ────────────────────────────────────────────────────
+const _msAllOpts={brand:[],medium:[],month:[],bu:[],model:[]};
+const _msCurOpts={brand:[],medium:[],month:[],bu:[],model:[]};
+const _msSel={brand:new Set(),medium:new Set(),month:new Set(),bu:new Set(),model:new Set()};
+let _msOpenId=null;
+const _msLabels={brand:'All Brands',medium:'All Sources',month:'All Months',bu:'All BU',model:'All Models'};
+function msToggle(id){
+  if(_msOpenId&&_msOpenId!==id)msClose(_msOpenId);
+  const drop=document.getElementById('ms-drop-'+id);
+  const btn=document.getElementById('ms-btn-'+id);
+  if(!drop)return;
+  if(drop.style.display==='none'){
+    drop.style.display='block';btn.classList.add('open');_msOpenId=id;
+    const si=document.getElementById('ms-search-'+id);if(si){si.value='';msFilter(id);}
+  } else msClose(id);
+}
+function msClose(id){
+  const d=document.getElementById('ms-drop-'+id);if(d)d.style.display='none';
+  const b=document.getElementById('ms-btn-'+id);if(b)b.classList.remove('open');
+  if(_msOpenId===id)_msOpenId=null;
+}
+document.addEventListener('click',e=>{
+  if(_msOpenId&&!e.target.closest('#ms-wrap-'+_msOpenId))msClose(_msOpenId);
+},true);
+function msSetOptions(id,opts){
+  _msAllOpts[id]=[...opts];_msCurOpts[id]=[...opts];msRender(id);
+}
+function msFilter(id){
+  const q=(document.getElementById('ms-search-'+id)?.value||'').toLowerCase();
+  _msCurOpts[id]=q?_msAllOpts[id].filter(o=>o.toLowerCase().includes(q)):[..._msAllOpts[id]];
+  msRender(id);
+}
+function msRender(id){
+  const list=document.getElementById('ms-list-'+id);if(!list)return;
+  if(!_msCurOpts[id].length){list.innerHTML='<div class="ms-no-opts">No options</div>';return;}
+  list.innerHTML=_msCurOpts[id].map(opt=>{
+    const chk=_msSel[id].has(opt);
+    const lbl=(id==='brand'&&typeof PARTIAL!=='undefined'&&PARTIAL&&PARTIAL.has(opt))?opt+' ⚠️':opt;
+    return`<label class="ms-item"><input type="checkbox" value="${opt.replace(/"/g,'&quot;')}" ${chk?'checked':''} onchange="msToggleOpt('${id}',this.value,this.checked)">${lbl}</label>`;
+  }).join('');
+}
+function msToggleOpt(id,val,checked){
+  if(checked)_msSel[id].add(val);else _msSel[id].delete(val);
+  msUpdateLabel(id);
+  if(id==='brand')onBrandChange();else if(id==='bu')onBUChange();else applyFilters();
+}
+function msAll(id){
+  _msAllOpts[id].forEach(o=>_msSel[id].add(o));
+  msRender(id);msUpdateLabel(id);
+  if(id==='brand')onBrandChange();else if(id==='bu')onBUChange();else applyFilters();
+}
+function msClear(id){
+  _msSel[id].clear();
+  msRender(id);msUpdateLabel(id);
+  if(id==='brand')onBrandChange();else if(id==='bu')onBUChange();else applyFilters();
+}
+function msUpdateLabel(id){
+  const n=_msSel[id].size;
+  const lbl=document.getElementById('ms-lbl-'+id);if(!lbl)return;
+  const base=_msLabels[id];
+  if(n===0){lbl.innerHTML=base;}
+  else if(n===1){const v=[..._msSel[id]][0];lbl.textContent=v.length>16?v.slice(0,16)+'…':v;}
+  else{const noun=base.replace(/^All /,'');lbl.innerHTML=noun+` <span class="ms-badge">${n}</span>`;}
+}
+function getMS(id){return[..._msSel[id]];}
+// Multi-select helper utilities
+function _hasF(arr){return Array.isArray(arr)&&arr.length>0;}
+function _sumKeys(obj,keys){return keys.reduce((s,k)=>s+(obj?.[k]||0),0);}
+function _mergeSubs(keys,lookup){const out={};for(const k of keys){for(const[sk,v]of Object.entries(lookup?.[k]||{}))out[sk]=(out[sk]||0)+v;}return out;}
 let charts={};
 function mkChart(id,type,labels,datasets,opts){
   if(charts[id])charts[id].destroy();
@@ -299,17 +431,12 @@ function mkChart(id,type,labels,datasets,opts){
   if(!ctx)return;
   charts[id]=new Chart(ctx,{type,data:{labels,datasets},options:opts});
 }
-let fBrand='',fMedium='',fMonth='',fModel='',fBU='';
+let fBrand=[],fMedium=[],fMonth=[],fModel=[],fBU=[];
 window.addEventListener('DOMContentLoaded',()=>{
-  const bSel=document.getElementById('f-brand');
-  D.brands_all.forEach(b=>{const o=document.createElement('option');o.value=b;
-    o.textContent=PARTIAL.has(b)?b+' ⚠️':b;bSel.appendChild(o);});
-  const mSel=document.getElementById('f-medium');
-  D.mediums_all.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;mSel.appendChild(o);});
-  const moSel=document.getElementById('f-month');
-  D.months_present.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;moSel.appendChild(o);});
-  const buSel=document.getElementById('f-bu');
-  Object.keys(D.by_bu||{}).forEach(bu=>{const o=document.createElement('option');o.value=bu;o.textContent=bu;buSel.appendChild(o);});
+  msSetOptions('brand',D.brands_all);
+  msSetOptions('medium',D.mediums_all);
+  msSetOptions('month',D.months_present);
+  msSetOptions('bu',Object.keys(D.by_bu||{}));
   populateModelFilter();
   const lm=new Date(document.lastModified);
   const ist=new Date(lm.getTime()+19800000);
@@ -319,104 +446,112 @@ window.addEventListener('DOMContentLoaded',()=>{
   applyFilters();
 });
 function populateBrandFilter(){
-  const bu=document.getElementById('f-bu').value;
-  const sel=document.getElementById('f-brand');
-  const prev=sel.value;
-  sel.innerHTML='<option value="">All Brands</option>';
-  const brands=bu?D.brands_all.filter(b=>(D.bu_brand?.[bu]?.[b]||0)>0):D.brands_all;
-  brands.forEach(b=>{const o=document.createElement('option');o.value=b;
-    o.textContent=PARTIAL.has(b)?b+' ⚠️':b;if(b===prev)o.selected=true;sel.appendChild(o);});
-  if(prev&&!brands.includes(prev))sel.value='';
+  const prev=[..._msSel.brand];
+  const brands=_hasF(fBU)?D.brands_all.filter(b=>fBU.some(bu=>(D.bu_brand?.[bu]?.[b]||0)>0)):D.brands_all;
+  msSetOptions('brand',brands);
+  _msSel.brand=new Set(prev.filter(b=>brands.includes(b)));
+  msRender('brand');msUpdateLabel('brand');
 }
 function populateBUFilter(){
-  const brand=document.getElementById('f-brand').value;
-  const sel=document.getElementById('f-bu');
-  const prev=sel.value;
-  sel.innerHTML='<option value="">All BU</option>';
-  const bus=brand?Object.keys(D.by_bu||{}).filter(bu=>(D.bu_brand?.[bu]?.[brand]||0)>0):Object.keys(D.by_bu||{});
-  bus.forEach(bu=>{const o=document.createElement('option');o.value=bu;o.textContent=bu;if(bu===prev)o.selected=true;sel.appendChild(o);});
-  if(prev&&!bus.includes(prev))sel.value='';
+  const prev=[..._msSel.bu];
+  const bus=_hasF(fBrand)?Object.keys(D.by_bu||{}).filter(bu=>fBrand.some(b=>(D.bu_brand?.[bu]?.[b]||0)>0)):Object.keys(D.by_bu||{});
+  msSetOptions('bu',bus);
+  _msSel.bu=new Set(prev.filter(bu=>bus.includes(bu)));
+  msRender('bu');msUpdateLabel('bu');
 }
 function populateModelFilter(){
-  const b=document.getElementById('f-brand').value;
-  const bu=document.getElementById('f-bu').value;
-  const sel=document.getElementById('f-model');
-  const prev=sel.value;
-  sel.innerHTML='<option value="">All Models</option>';
-  const entries=(b&&bu)?Object.entries(D.brand_model[b]||{}).filter(([m])=>D.model_bu?.[m]===bu).sort((a,x)=>x[1]-a[1]):
-                b?Object.entries(D.brand_model[b]||{}).sort((a,x)=>x[1]-a[1]):
-                bu?Object.entries(D.bu_model?.[bu]||{}).sort((a,x)=>x[1]-a[1]):
-                Object.entries(D.by_model).sort((a,x)=>x[1]-a[1]);
-  entries.forEach(([m])=>{const o=document.createElement('option');o.value=m;o.textContent=m;if(m===prev)o.selected=true;sel.appendChild(o);});
-  if(prev&&!entries.find(([m])=>m===prev))sel.value='';
+  const prev=[..._msSel.model];
+  let models;
+  if(_hasF(fBrand)&&_hasF(fBU)){
+    const s=new Set();fBrand.forEach(b=>Object.keys(D.brand_model[b]||{}).filter(m=>fBU.includes(D.model_bu?.[m])).forEach(m=>s.add(m)));
+    models=[...s];
+  } else if(_hasF(fBrand)){
+    const s=new Set();fBrand.forEach(b=>Object.keys(D.brand_model[b]||{}).forEach(m=>s.add(m)));
+    models=[...s];
+  } else if(_hasF(fBU)){
+    const s=new Set();fBU.forEach(bu=>Object.keys(D.bu_model?.[bu]||{}).forEach(m=>s.add(m)));
+    models=[...s];
+  } else {
+    models=Object.keys(D.by_model);
+  }
+  models.sort((a,b)=>((D.by_model[b]||0)-(D.by_model[a]||0)));
+  msSetOptions('model',models);
+  _msSel.model=new Set(prev.filter(m=>models.includes(m)));
+  msRender('model');msUpdateLabel('model');
 }
 function onBrandChange(){
-  fBrand=document.getElementById('f-brand').value;
+  fBrand=getMS('brand');
   populateBUFilter();
   populateModelFilter();
   applyFilters();
 }
 function onBUChange(){
-  fBU=document.getElementById('f-bu').value;
+  fBU=getMS('bu');
   populateBrandFilter();
   populateModelFilter();
   applyFilters();
 }
 function applyFilters(){
-  fBrand=document.getElementById('f-brand').value;
-  fMedium=document.getElementById('f-medium').value;
-  fMonth=document.getElementById('f-month').value;
-  fBU=document.getElementById('f-bu').value;
-  fModel=document.getElementById('f-model').value;
+  fBrand=getMS('brand');
+  fMedium=getMS('medium');
+  fMonth=getMS('month');
+  fBU=getMS('bu');
+  fModel=getMS('model');
   const parts=[];
-  if(fBrand)parts.push('Brand: '+fBrand.replace(' ⚠️',''));
-  if(fMedium)parts.push('Source: '+fMedium);
-  if(fMonth)parts.push('Month: '+fMonth);
-  if(fBU)parts.push('BU: '+fBU);
-  if(fModel)parts.push('Model: '+fModel);
+  if(_hasF(fBrand))parts.push('Brand: '+(fBrand.length===1?fBrand[0].replace(' ⚠️',''):fBrand.length+' brands'));
+  if(_hasF(fMedium))parts.push('Source: '+(fMedium.length===1?fMedium[0]:fMedium.length+' sources'));
+  if(_hasF(fMonth))parts.push('Month: '+(fMonth.length===1?fMonth[0]:fMonth.length+' months'));
+  if(_hasF(fBU))parts.push('BU: '+(fBU.length===1?fBU[0]:fBU.length+' BUs'));
+  if(_hasF(fModel))parts.push('Model: '+(fModel.length===1?fModel[0]:fModel.length+' models'));
   document.getElementById('filter-label').textContent=parts.length?'🔍 '+parts.join(' · '):'';
   renderAll();
 }
 function resetFilters(){
-  fBrand='';fMedium='';fMonth='';fBU='';fModel='';
-  ['f-medium','f-month','f-model'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('f-brand').value='';
-  document.getElementById('f-bu').value='';
-  populateBrandFilter();
-  populateBUFilter();
+  fBrand=[];fMedium=[];fMonth=[];fBU=[];fModel=[];
+  ['brand','medium','month','bu','model'].forEach(id=>{_msSel[id].clear();msRender(id);msUpdateLabel(id);});
+  msSetOptions('brand',D.brands_all);
+  msSetOptions('medium',D.mediums_all);
+  msSetOptions('month',D.months_present);
+  msSetOptions('bu',Object.keys(D.by_bu||{}));
   populateModelFilter();
   applyFilters();
 }
 // Returns filtered counts for a secondary dimension using brand/medium/BU cross-data
 let _dlrFiltered=null,_mdlFiltered=null;
 function filteredDimCounts(byAll,xBrand,xMedium,xBU){
-  if(!fBrand&&!fMedium&&!fBU)return byAll;
+  if(!_hasF(fBrand)&&!_hasF(fMedium)&&!_hasF(fBU))return byAll;
   const out={};
-  if(fBU&&xBU&&!fBrand){return xBU[fBU]||{};}
-  if(fBrand&&xBrand){for(const[k,bm]of Object.entries(xBrand)){const v=bm[fBrand]||0;if(v>0)out[k]=v;}}
-  else if(fMedium&&xMedium){for(const[k,mm]of Object.entries(xMedium)){const v=mm[fMedium]||0;if(v>0)out[k]=v;}}
+  if(_hasF(fBU)&&xBU&&!_hasF(fBrand)){
+    for(const bu of fBU){const sub=xBU[bu]||{};for(const[k,v]of Object.entries(sub))out[k]=(out[k]||0)+v;}
+    return out;
+  }
+  if(_hasF(fBrand)&&xBrand){for(const[k,bm]of Object.entries(xBrand)){const v=_sumKeys(bm,fBrand);if(v>0)out[k]=v;}}
+  else if(_hasF(fMedium)&&xMedium){for(const[k,mm]of Object.entries(xMedium)){const v=_sumKeys(mm,fMedium);if(v>0)out[k]=v;}}
   else return byAll;
   return out;
 }
 function filteredBrandTotals(){
   const out={};
-  const buBrands=fBU?(D.bu_brand?.[fBU]||{}):null;
+  const buBrands=_hasF(fBU)?Object.entries(D.bu_brand||{}).filter(([bu])=>fBU.includes(bu)).reduce((acc,[,bm])=>{for(const[b,v]of Object.entries(bm))acc[b]=(acc[b]||0)+v;return acc;},{}):null;
   for(const b of D.brands_all){
-    if(fBrand&&b!==fBrand)continue;
+    if(_hasF(fBrand)&&!fBrand.includes(b))continue;
     if(buBrands&&!(b in buBrands))continue;
+    const bT=D.by_brand[b]||1;
     let base;
-    if(fModel){
-      base=D.brand_model[b]?.[fModel]||0;
-      if(fMedium&&base){const bT=D.by_brand[b]||1;base=Math.round(base*(D.brand_medium[b]?.[fMedium]||0)/bT);}
-      if(fMonth&&base){const bT=D.by_brand[b]||1;base=Math.round(base*(D.brand_month[b]?.[fMonth]||0)/bT);}
-    } else if(fBU&&buBrands){
+    if(_hasF(fModel)){
+      base=_sumKeys(D.brand_model[b]||{},fModel);
+      if(_hasF(fMedium)&&base){base=Math.round(base*_sumKeys(D.brand_medium[b]||{},fMedium)/bT);}
+      if(_hasF(fMonth)&&base){base=Math.round(base*_sumKeys(D.brand_month[b]||{},fMonth)/bT);}
+    } else if(_hasF(fBU)&&buBrands){
       base=buBrands[b]||0;
-      if(fMedium&&base){const bT=D.by_brand[b]||1;base=Math.round(base*(D.brand_medium[b]?.[fMedium]||0)/bT);}
-      if(fMonth&&base){const bT=D.by_brand[b]||1;base=Math.round(base*(D.brand_month[b]?.[fMonth]||0)/bT);}
-    } else if(fMedium&&fMonth){
-      base=D.brand_month[b]?.[fMonth]?Math.round((D.brand_month[b][fMonth])*(D.brand_medium[b]?.[fMedium]||0)/Math.max(1,Object.values(D.brand_medium[b]||{}).reduce((a,c)=>a+c,0))):0;
-    } else if(fMonth){base=D.brand_month[b]?.[fMonth]||0;}
-    else if(fMedium){base=D.brand_medium[b]?.[fMedium]||0;}
+      if(_hasF(fMedium)&&base){base=Math.round(base*_sumKeys(D.brand_medium[b]||{},fMedium)/bT);}
+      if(_hasF(fMonth)&&base){base=Math.round(base*_sumKeys(D.brand_month[b]||{},fMonth)/bT);}
+    } else if(_hasF(fMedium)&&_hasF(fMonth)){
+      const mSum=_sumKeys(D.brand_month[b]||{},fMonth);
+      const medTotal=Object.values(D.brand_medium[b]||{}).reduce((a,c)=>a+c,0);
+      base=mSum?Math.round(mSum*_sumKeys(D.brand_medium[b]||{},fMedium)/Math.max(1,medTotal)):0;
+    } else if(_hasF(fMonth)){base=_sumKeys(D.brand_month[b]||{},fMonth);}
+    else if(_hasF(fMedium)){base=_sumKeys(D.brand_medium[b]||{},fMedium);}
     else{base=D.by_brand[b]||0;}
     out[b]=base;
   }
@@ -424,13 +559,16 @@ function filteredBrandTotals(){
 }
 function filteredMediumTotals(){
   const out={};
-  const buMed=fBU?(D.bu_medium?.[fBU]||{}):null;
+  const buMed=_hasF(fBU)?_mergeSubs(fBU,D.bu_medium):null;
   for(const m of D.mediums_all){
-    if(fMedium&&m!==fMedium)continue;
-    if(buMed&&!fBrand){out[m]=buMed[m]||0;}
-    else if(fBrand&&fMonth){out[m]=Math.round((D.medium_month[m]?.[fMonth]||0)*(D.brand_medium[fBrand]?.[m]||0)/Math.max(1,Object.values(D.brand_medium[fBrand]||{}).reduce((a,c)=>a+c,0)));}
-    else if(fBrand){out[m]=D.brand_medium[fBrand]?.[m]||0;}
-    else if(fMonth){out[m]=D.medium_month[m]?.[fMonth]||0;}
+    if(_hasF(fMedium)&&!fMedium.includes(m))continue;
+    if(buMed&&!_hasF(fBrand)){out[m]=buMed[m]||0;}
+    else if(_hasF(fBrand)&&_hasF(fMonth)){
+      let total=0;
+      for(const b of fBrand){const bT=D.by_brand[b]||1;const moRatio=_sumKeys(D.brand_month[b]||{},fMonth)/bT;total+=Math.round((D.brand_medium[b]?.[m]||0)*moRatio);}
+      out[m]=total;
+    } else if(_hasF(fBrand)){out[m]=fBrand.reduce((s,b)=>s+(D.brand_medium[b]?.[m]||0),0);}
+    else if(_hasF(fMonth)){out[m]=_sumKeys(D.medium_month[m]||{},fMonth);}
     else{out[m]=D.by_medium[m]||0;}
   }
   return out;
@@ -439,7 +577,7 @@ function updateKPIs(){
   const mt=filteredMediumTotals();const bt=filteredBrandTotals();
   const total=Object.values(bt).reduce((a,c)=>a+c,0);
   document.getElementById('kv-total').textContent=fmtN(total);
-  document.getElementById('kv-sub').textContent=fBrand||fMedium||fMonth?'filtered':'deduplicated';
+  document.getElementById('kv-sub').textContent=_hasF(fBrand)||_hasF(fMedium)||_hasF(fMonth)?'filtered':'deduplicated';
   [['Organic','organic'],['Google','google'],['Facebook','fb'],['Non-MS','nonms']].forEach(([med,key])=>{
     const v=mt[med]||0;
     document.getElementById('kv-'+key).textContent=fmtN(v);
@@ -476,9 +614,9 @@ function renderOverview(){
   const mt=filteredMediumTotals();const mK=Object.keys(mt).filter(k=>mt[k]>0);
   mkChart('ch-medium-pie','doughnut',mK,[{data:mK.map(k=>mt[k]),backgroundColor:col(mK,MCOL,'#8b949e'),borderWidth:2,borderColor:'#1c2330'}],pieOpts());
   const months=D.months_present;
-  const td=months.map(m=>fBrand?D.brand_month[fBrand]?.[m]||0:fBU?D.bu_month?.[fBU]?.[m]||0:fMedium?D.medium_month[fMedium]?.[m]||0:D.by_month[m]||0);
+  const td=months.map(m=>{if(_hasF(fBrand))return fBrand.reduce((s,b)=>s+(D.brand_month[b]?.[m]||0),0);if(_hasF(fBU))return fBU.reduce((s,bu)=>s+(D.bu_month?.[bu]?.[m]||0),0);if(_hasF(fMedium))return fMedium.reduce((s,med)=>s+(D.medium_month[med]?.[m]||0),0);return D.by_month[m]||0;});
   mkChart('ch-trend-line','line',months,[{data:td,borderColor:'#e94560',backgroundColor:'rgba(233,69,96,.1)',fill:true,tension:.4,pointRadius:4,pointBackgroundColor:'#e94560'}],baseOpts());
-  const ltRawO=fBrand?(D.brand_lt[fBrand]||{}):fBU?(D.bu_lt?.[fBU]||{}):fMedium?Object.fromEntries(Object.entries(D.lt_medium).map(([lt,mm])=>[lt,mm[fMedium]||0])):D.by_lt;
+  const ltRawO=_hasF(fBrand)?_mergeSubs(fBrand,D.brand_lt):_hasF(fBU)?_mergeSubs(fBU,D.bu_lt):_hasF(fMedium)?Object.fromEntries(Object.entries(D.lt_medium).map(([lt,mm])=>[lt,_sumKeys(mm,fMedium)])):D.by_lt;
   const lt10=topN(ltRawO,10);
   mkChart('ch-lt-bar','bar',lt10.map(e=>e[0]),[{data:lt10.map(e=>e[1]),backgroundColor:col(lt10.map(e=>e[0]),LTCOL,'#6C63FF'),borderRadius:4}],hBarOpts());
   const stCO=filteredDimCounts(D.by_state,D.state_brand,D.state_medium,D.bu_state);
@@ -506,20 +644,20 @@ function renderBrand(){
 function renderSource(){
   const mt=filteredMediumTotals();const mE=Object.entries(mt).sort((a,b)=>b[1]-a[1]);
   mkChart('ch-med2','doughnut',mE.map(e=>e[0]),[{data:mE.map(e=>e[1]),backgroundColor:col(mE.map(e=>e[0]),MCOL,'#8b949e'),borderWidth:2,borderColor:'#1c2330'}],pieOpts());
-  const bShowS=fBrand?[fBrand]:fBU?Object.keys(D.bu_brand?.[fBU]||{}):D.brands_all;
+  const bShowS=_hasF(fBrand)?fBrand:_hasF(fBU)?[...new Set(Object.keys(_mergeSubs(fBU,D.bu_brand)))]:D.brands_all;
   mkChart('ch-med-brand','bar',mE.map(e=>e[0]),bShowS.map(b=>{return{label:b,data:mE.map(([m])=>D.brand_medium[b]?.[m]||0),backgroundColor:BCOL[b]||'#8b949e'}}),stackedOpts());
   const months=D.months_present;
   const o=baseOpts();o.plugins.legend=legendOpts;
-  const mTrend=fBrand?D.mediums_all.map(m=>{const bmT=Object.values(D.brand_medium[fBrand]||{}).reduce((a,c)=>a+c,0);const ratio=bmT?(D.brand_medium[fBrand]?.[m]||0)/bmT:0;return{label:m,data:months.map(mo=>Math.round((D.brand_month[fBrand]?.[mo]||0)*ratio)),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};}):fBU?D.mediums_all.map(m=>{const buT=Object.values(D.bu_medium?.[fBU]||{}).reduce((a,c)=>a+c,0);const ratio=buT?(D.bu_medium?.[fBU]?.[m]||0)/buT:0;return{label:m,data:months.map(mo=>Math.round((D.bu_month?.[fBU]?.[mo]||0)*ratio)),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};}):D.mediums_all.map(m=>{return{label:m,data:months.map(mo=>D.medium_month[m]?.[mo]||0),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};});
+  const _bmAllS=_hasF(fBrand)?_mergeSubs(fBrand,D.brand_medium):{};const _bmTS=Object.values(_bmAllS).reduce((a,c)=>a+c,0);const _buMedS=_hasF(fBU)?_mergeSubs(fBU,D.bu_medium):{};const _buMTS=Object.values(_buMedS).reduce((a,c)=>a+c,0);const mTrend=_hasF(fBrand)?D.mediums_all.map(m=>{const ratio=_bmTS?(_bmAllS[m]||0)/_bmTS:0;return{label:m,data:months.map(mo=>Math.round(fBrand.reduce((s,b)=>s+(D.brand_month[b]?.[mo]||0),0)*ratio)),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};}):_hasF(fBU)?D.mediums_all.map(m=>{const ratio=_buMTS?(_buMedS[m]||0)/_buMTS:0;return{label:m,data:months.map(mo=>Math.round(fBU.reduce((s,bu)=>s+(D.bu_month?.[bu]?.[mo]||0),0)*ratio)),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};}):D.mediums_all.map(m=>{return{label:m,data:months.map(mo=>D.medium_month[m]?.[mo]||0),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};});
   mkChart('ch-med-trend','line',months,mTrend,o);
   const topLts=topN(D.by_lt,8).map(e=>e[0]);
   mkChart('ch-med-lt','bar',D.mediums_all,topLts.map(lt=>{return{label:lt,data:D.mediums_all.map(m=>D.lt_medium[lt]?.[m]||0),backgroundColor:LTCOL[lt]||'#8b949e'}}),stackedOpts());
 }
 function renderLeadType(){
-  const ltRaw=fBrand?(D.brand_lt[fBrand]||{}):fBU?(D.bu_lt?.[fBU]||{}):fMedium?Object.fromEntries(Object.entries(D.lt_medium).map(([lt,mm])=>[lt,mm[fMedium]||0])):D.by_lt;
+  const ltRaw=_hasF(fBrand)?_mergeSubs(fBrand,D.brand_lt):_hasF(fBU)?_mergeSubs(fBU,D.bu_lt):_hasF(fMedium)?Object.fromEntries(Object.entries(D.lt_medium).map(([lt,mm])=>[lt,_sumKeys(mm,fMedium)])):D.by_lt;
   const ltE=Object.entries(ltRaw).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
   const total=ltE.reduce((a,[,v])=>a+v,0)||1;
-  const mShow=fMedium?[fMedium]:D.mediums_all;
+  const mShow=_hasF(fMedium)?fMedium:D.mediums_all;
   mkChart('ch-lt2','bar',ltE.map(e=>e[0]),[{data:ltE.map(e=>e[1]),backgroundColor:col(ltE.map(e=>e[0]),LTCOL,'#6C63FF'),borderRadius:4}],hBarOpts());
   mkChart('ch-lt-med','bar',ltE.map(e=>e[0]),mShow.map(m=>{return{label:m,data:ltE.map(([lt])=>D.lt_medium[lt]?.[m]||0),backgroundColor:MCOL[m]||'#8b949e'}}),stackedOpts());
   let html=`<table class="tbl"><thead><tr><th>#</th><th>Lead Type</th><th>Total</th><th>Share</th>${D.mediums_all.map(m=>`<th>${m}</th>`).join('')}</tr></thead><tbody>`;
@@ -594,16 +732,22 @@ let dlrCurPage=0;const DLR_PG=30;
 function dlrCity(n){const s=n.indexOf(' · ');if(s<0)return'';const cs=n.slice(s+3);const c=cs.lastIndexOf(', ');return c>=0?cs.slice(0,c):cs;}
 function dlrState(n){const s=n.indexOf(' · ');if(s<0)return'';const cs=n.slice(s+3);const c=cs.lastIndexOf(', ');return c>=0?cs.slice(c+2):'';}
 function getFilteredDealers(){
-  if(!fBrand&&!fBU&&!fMedium&&!fMonth&&!fModel)return D.by_dealer;
+  if(!_hasF(fBrand)&&!_hasF(fBU)&&!_hasF(fMedium)&&!_hasF(fMonth)&&!_hasF(fModel))return D.by_dealer;
   const cands=new Set(Object.keys(D.by_dealer));
-  if(fBrand){for(const d of[...cands])if(!((D.dealer_brand?.[d]?.[fBrand]||0)>0))cands.delete(d);}
-  if(fBU){for(const d of[...cands])if(!((D.bu_dealer?.[fBU]?.[d]||0)>0))cands.delete(d);}
-  if(fMedium){for(const d of[...cands])if(!((D.dealer_medium?.[d]?.[fMedium]||0)>0))cands.delete(d);}
-  if(fMonth){for(const d of[...cands])if(!((D.dealer_month?.[d]?.[fMonth]||0)>0))cands.delete(d);}
-  if(fModel){for(const d of[...cands])if(!((D.model_dealer?.[fModel]?.[d]||0)>0))cands.delete(d);}
+  if(_hasF(fBrand)){for(const d of[...cands])if(!fBrand.some(b=>(D.dealer_brand?.[d]?.[b]||0)>0))cands.delete(d);}
+  if(_hasF(fBU)){for(const d of[...cands])if(!fBU.some(bu=>(D.bu_dealer?.[bu]?.[d]||0)>0))cands.delete(d);}
+  if(_hasF(fMedium)){for(const d of[...cands])if(!fMedium.some(m=>(D.dealer_medium?.[d]?.[m]||0)>0))cands.delete(d);}
+  if(_hasF(fMonth)){for(const d of[...cands])if(!fMonth.some(m=>(D.dealer_month?.[d]?.[m]||0)>0))cands.delete(d);}
+  if(_hasF(fModel)){for(const d of[...cands])if(!fModel.some(m=>(D.model_dealer?.[m]?.[d]||0)>0))cands.delete(d);}
   const res={};
   for(const d of cands){
-    let cnt=fModel?(D.model_dealer?.[fModel]?.[d]||0):fBrand?(D.dealer_brand?.[d]?.[fBrand]||0):fBU?(D.bu_dealer?.[fBU]?.[d]||0):fMedium?(D.dealer_medium?.[d]?.[fMedium]||0):fMonth?(D.dealer_month?.[d]?.[fMonth]||0):(D.by_dealer[d]||0);
+    let cnt;
+    if(_hasF(fModel))cnt=fModel.reduce((s,m)=>s+(D.model_dealer?.[m]?.[d]||0),0);
+    else if(_hasF(fBrand))cnt=_sumKeys(D.dealer_brand?.[d]||{},fBrand);
+    else if(_hasF(fBU))cnt=fBU.reduce((s,bu)=>s+(D.bu_dealer?.[bu]?.[d]||0),0);
+    else if(_hasF(fMedium))cnt=_sumKeys(D.dealer_medium?.[d]||{},fMedium);
+    else if(_hasF(fMonth))cnt=_sumKeys(D.dealer_month?.[d]||{},fMonth);
+    else cnt=D.by_dealer[d]||0;
     if(cnt>0)res[d]=cnt;
   }
   return res;
@@ -679,14 +823,15 @@ function renderDlrPage(){
 }
 let mdlCurPage=0;const MDL_PG=25;
 function renderModel(){
-  _mdlFiltered=fModel?{[fModel]:D.by_model[fModel]||0}:
-    (fBrand&&fBU)?Object.fromEntries(Object.entries(D.brand_model[fBrand]||{}).filter(([m])=>D.model_bu?.[m]===fBU)):
-    fBrand?Object.fromEntries(Object.entries(D.model_brand).map(([m,bm])=>[m,bm[fBrand]||0]).filter(([,v])=>v>0)):
-    fBU?(D.bu_model?.[fBU]||{}):D.by_model;
+  if(_hasF(fModel)){_mdlFiltered=Object.fromEntries(fModel.map(m=>[m,D.by_model[m]||0]));}
+  else if(_hasF(fBrand)&&_hasF(fBU)){const s={};fBrand.forEach(b=>Object.entries(D.brand_model[b]||{}).filter(([m])=>fBU.includes(D.model_bu?.[m])).forEach(([m,v])=>s[m]=(s[m]||0)+v));_mdlFiltered=s;}
+  else if(_hasF(fBrand)){const s={};fBrand.forEach(b=>Object.entries(D.model_brand).forEach(([m,bm])=>{const v=bm[b]||0;if(v>0)s[m]=(s[m]||0)+v;}));_mdlFiltered=s;}
+  else if(_hasF(fBU)){const s={};fBU.forEach(bu=>Object.entries(D.bu_model?.[bu]||{}).forEach(([m,v])=>s[m]=(s[m]||0)+v));_mdlFiltered=s;}
+  else{_mdlFiltered=D.by_model;}
   const top15=topN(_mdlFiltered,15);
   mkChart('ch-model-bar','bar',top15.map(e=>e[0]),[{data:top15.map(e=>e[1]),backgroundColor:'rgba(255,160,122,.75)',borderRadius:4}],hBarOpts());
   const o=stackedOpts();o.indexAxis='y';
-  const bShow=fBrand?[fBrand]:fBU?Object.keys(D.bu_brand?.[fBU]||{}):D.brands_all;
+  const bShow=_hasF(fBrand)?fBrand:_hasF(fBU)?[...new Set(Object.keys(_mergeSubs(fBU,D.bu_brand)))]:D.brands_all;
   mkChart('ch-model-brand','bar',top15.map(e=>e[0]),bShow.map(b=>{return{label:b,data:top15.map(([m])=>D.model_brand[m]?.[b]||0),backgroundColor:BCOL[b]||'#8b949e'}}),o);
   renderModelTable();
 }
@@ -712,11 +857,11 @@ function renderMdlPage(){
 }
 function renderTrend(){
   const months=D.months_present;
-  const bShowT=fBrand?[fBrand]:fBU?Object.keys(D.bu_brand?.[fBU]||{}):D.brands_all;
-  mkChart('ch-bm-stack','bar',months,bShowT.map(b=>{return{label:b,data:months.map(m=>fBU&&!fBrand?(D.bu_brand?.[fBU]?.[b]?Math.round((D.bu_month?.[fBU]?.[m]||0)*(D.bu_brand?.[fBU]?.[b]||0)/Math.max(1,Object.values(D.bu_brand?.[fBU]||{}).reduce((a,c)=>a+c,0))):0):D.brand_month[b]?.[m]||0),backgroundColor:BCOL[b]||'#8b949e'}}),stackedOpts());
+  const bShowT=_hasF(fBrand)?fBrand:_hasF(fBU)?[...new Set(Object.keys(_mergeSubs(fBU,D.bu_brand)))]:D.brands_all;
+  const _buBrandMT=_hasF(fBU)?_mergeSubs(fBU,D.bu_brand):{};const _buMonthMT=_hasF(fBU)?_mergeSubs(fBU,D.bu_month):{};const _buTotalMT=Object.values(_buBrandMT).reduce((a,c)=>a+c,0);mkChart('ch-bm-stack','bar',months,bShowT.map(b=>{return{label:b,data:months.map(m=>{if(_hasF(fBU)&&!_hasF(fBrand)){const r=_buTotalMT&&_buBrandMT[b]?(_buBrandMT[b]/_buTotalMT):0;return Math.round((_buMonthMT[m]||0)*r);}return D.brand_month[b]?.[m]||0;}),backgroundColor:BCOL[b]||'#8b949e'}}),stackedOpts());
   const o1=baseOpts();o1.plugins.legend=legendOpts;
-  const mShowT=fMedium?[fMedium]:D.mediums_all;
-  const med2=fBrand?mShowT.map(m=>{const bmT=Object.values(D.brand_medium[fBrand]||{}).reduce((a,c)=>a+c,0);const ratio=bmT?(D.brand_medium[fBrand]?.[m]||0)/bmT:0;return{label:m,data:months.map(mo=>Math.round((D.brand_month[fBrand]?.[mo]||0)*ratio)),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};}):fBU?mShowT.map(m=>{const buT=Object.values(D.bu_medium?.[fBU]||{}).reduce((a,c)=>a+c,0);const ratio=buT?(D.bu_medium?.[fBU]?.[m]||0)/buT:0;return{label:m,data:months.map(mo=>Math.round((D.bu_month?.[fBU]?.[mo]||0)*ratio)),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};}):mShowT.map(m=>{return{label:m,data:months.map(mo=>D.medium_month[m]?.[mo]||0),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};});
+  const mShowT=_hasF(fMedium)?fMedium:D.mediums_all;
+  const _bmAllT=_hasF(fBrand)?_mergeSubs(fBrand,D.brand_medium):{};const _bmTT=Object.values(_bmAllT).reduce((a,c)=>a+c,0);const med2=_hasF(fBrand)?mShowT.map(m=>{const ratio=_bmTT?(_bmAllT[m]||0)/_bmTT:0;return{label:m,data:months.map(mo=>Math.round(fBrand.reduce((s,b)=>s+(D.brand_month[b]?.[mo]||0),0)*ratio)),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};}):_hasF(fBU)?mShowT.map(m=>{const buMed2=_mergeSubs(fBU,D.bu_medium)||{};const buT2=Object.values(buMed2).reduce((a,c)=>a+c,0);const ratio=buT2?(buMed2[m]||0)/buT2:0;return{label:m,data:months.map(mo=>Math.round(fBU.reduce((s,bu)=>s+(D.bu_month?.[bu]?.[mo]||0),0)*ratio)),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};}):mShowT.map(m=>{return{label:m,data:months.map(mo=>D.medium_month[m]?.[mo]||0),borderColor:MCOL[m]||'#8b949e',backgroundColor:'transparent',tension:.4,pointRadius:3};});
   mkChart('ch-med-trend2','line',months,med2,o1);
   const top5lt=Object.entries(D.by_lt).sort((a,b)=>b[1]-a[1]).slice(0,5).map(e=>e[0]);
   const o2=baseOpts();o2.plugins.legend=legendOpts;
@@ -734,26 +879,26 @@ function _getMoMRows(dim){
   }
 
   if(dim==='brand'){
-    const show=fBrand?[fBrand]:D.brands_all;
+    const show=_hasF(fBrand)?fBrand:D.brands_all;
     for(const b of show){
       const md={};
-      if(fBU&&!fBrand){
-        // scale brand_month by this brand's share in the BU
-        const buT=Object.values(D.bu_brand?.[fBU]||{}).reduce((a,c)=>a+c,0);
-        const ratio=buT?(D.bu_brand?.[fBU]?.[b]||0)/buT:0;
-        for(const m of months)md[m]=Math.round((D.bu_month?.[fBU]?.[m]||0)*ratio*(D.bu_brand?.[fBU]?.[b]||0)/(Object.values(D.bu_brand?.[fBU]||{}).reduce((a,c)=>a+c,0)||1));
+      if(_hasF(fBU)&&!_hasF(fBrand)){
+        const _bBM=_mergeSubs(fBU,D.bu_brand)||{};const _bMoM=_mergeSubs(fBU,D.bu_month)||{};
+        const buT=Object.values(_bBM).reduce((a,c)=>a+c,0);
+        const ratio=buT?(_bBM[b]||0)/buT:0;
+        for(const m of months)md[m]=Math.round((_bMoM[m]||0)*ratio);
       } else {
         for(const m of months)md[m]=D.brand_month?.[b]?.[m]||0;
       }
       pushRow(b,md);
     }
   } else if(dim==='bu'){
-    const show=fBU?[fBU]:Object.keys(D.by_bu||{});
+    const show=_hasF(fBU)?fBU:Object.keys(D.by_bu||{});
     for(const bu of show){
       const md={};
-      if(fBrand){
+      if(_hasF(fBrand)){
         const buT=Object.values(D.bu_brand?.[bu]||{}).reduce((a,c)=>a+c,0);
-        const ratio=buT?(D.bu_brand?.[bu]?.[fBrand]||0)/buT:0;
+        const ratio=buT?_sumKeys(D.bu_brand?.[bu]||{},fBrand)/buT:0;
         for(const m of months)md[m]=Math.round((D.bu_month?.[bu]?.[m]||0)*ratio);
       } else {
         for(const m of months)md[m]=D.bu_month?.[bu]?.[m]||0;
@@ -761,7 +906,7 @@ function _getMoMRows(dim){
       pushRow(bu,md);
     }
   } else if(dim==='source'){
-    const show=fMedium?[fMedium]:D.mediums_all;
+    const show=_hasF(fMedium)?fMedium:D.mediums_all;
     for(const med of show){
       const md={};
       for(const m of months)md[m]=D.medium_month?.[med]?.[m]||0;
@@ -777,10 +922,10 @@ function _getMoMRows(dim){
   } else if(dim==='model'){
     // filter models by brand/BU/model selection
     let modelSet;
-    if(fModel)modelSet=[fModel];
-    else if(fBrand&&fBU)modelSet=Object.keys(D.bu_model?.[fBU]||{}).filter(mo=>(D.model_brand?.[mo]?.[fBrand]||0)>0);
-    else if(fBU)modelSet=Object.keys(D.bu_model?.[fBU]||{});
-    else if(fBrand)modelSet=Object.keys(D.model_brand).filter(mo=>(D.model_brand[mo]?.[fBrand]||0)>0);
+    if(_hasF(fModel))modelSet=fModel;
+    else if(_hasF(fBrand)&&_hasF(fBU)){const _ms2=new Set();fBrand.forEach(b=>fBU.forEach(bu=>Object.keys(D.bu_model?.[bu]||{}).filter(mo=>(D.model_brand?.[mo]?.[b]||0)>0).forEach(m=>_ms2.add(m))));modelSet=[..._ms2];}
+    else if(_hasF(fBU)){const _ms2=new Set();fBU.forEach(bu=>Object.keys(D.bu_model?.[bu]||{}).forEach(m=>_ms2.add(m)));modelSet=[..._ms2];}
+    else if(_hasF(fBrand))modelSet=Object.keys(D.model_brand).filter(mo=>fBrand.some(b=>(D.model_brand[mo]?.[b]||0)>0));
     else modelSet=Object.keys(D.by_model);
     for(const mo of modelSet){
       const md={};
@@ -790,15 +935,14 @@ function _getMoMRows(dim){
   } else if(dim==='state'){
     for(const state of Object.keys(D.by_state)){
       const md={};
-      if(fBU){
-        // scale state_month by BU's share in that state
+      if(_hasF(fBU)){
         const stTotal=D.by_state[state]||1;
-        const buInSt=D.bu_state?.[fBU]?.[state]||0;
+        const buInSt=fBU.reduce((s,bu)=>s+(D.bu_state?.[bu]?.[state]||0),0);
         const ratio=buInSt/stTotal;
         for(const m of months)md[m]=Math.round((D.state_month?.[state]?.[m]||0)*ratio);
-      } else if(fBrand){
+      } else if(_hasF(fBrand)){
         const stTotal=D.by_state[state]||1;
-        const brInSt=D.state_brand?.[state]?.[fBrand]||0;
+        const brInSt=_sumKeys(D.state_brand?.[state]||{},fBrand);
         const ratio=brInSt/stTotal;
         for(const m of months)md[m]=Math.round((D.state_month?.[state]?.[m]||0)*ratio);
       } else {
@@ -809,14 +953,14 @@ function _getMoMRows(dim){
   } else if(dim==='city'){
     for(const city of Object.keys(D.by_city)){
       const md={};
-      if(fBU){
+      if(_hasF(fBU)){
         const ctTotal=D.by_city[city]||1;
-        const buInCt=D.bu_city?.[fBU]?.[city]||0;
+        const buInCt=fBU.reduce((s,bu)=>s+(D.bu_city?.[bu]?.[city]||0),0);
         const ratio=buInCt/ctTotal;
         for(const m of months)md[m]=Math.round((D.city_month?.[city]?.[m]||0)*ratio);
-      } else if(fBrand){
+      } else if(_hasF(fBrand)){
         const ctTotal=D.by_city[city]||1;
-        const brInCt=D.city_brand?.[city]?.[fBrand]||0;
+        const brInCt=_sumKeys(D.city_brand?.[city]||{},fBrand);
         const ratio=brInCt/ctTotal;
         for(const m of months)md[m]=Math.round((D.city_month?.[city]?.[m]||0)*ratio);
       } else {
