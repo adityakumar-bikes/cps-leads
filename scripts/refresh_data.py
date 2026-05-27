@@ -496,6 +496,8 @@ def build_aggregations(all_rows, model_to_bu=None):
     bu_city   = defaultdict(dict); bu_dealer = defaultdict(dict)
     bu_lt     = defaultdict(dict); bu_model  = defaultdict(dict)
     model_bu_map = {}   # model (canonical case) → BU string
+    dealer_code_map = {}  # dealer_key → verified_dealer code
+    dealer_name_map = {}  # dealer_key → Dealer_Name
 
     months_seen = set()
 
@@ -509,6 +511,12 @@ def build_aggregations(all_rows, model_to_bu=None):
         d_city  = str(r.get("City","")       or "").strip()
         d_state = str(r.get("State","")      or "").strip()
         dealer  = f"{crm_id} · {d_city}, {d_state}" if crm_id else "Unknown"
+        d_code  = str(r.get("verified_dealer","") or "").strip()
+        d_name  = str(r.get("Dealer_Name","")     or "").strip()
+        if dealer not in dealer_code_map and d_code:
+            dealer_code_map[dealer] = d_code
+        if dealer not in dealer_name_map and d_name:
+            dealer_name_map[dealer] = d_name
         model   = cm(r.get("model", ""))
         lt      = norm_lt(r.get("lead_type",""))
         month   = str(r.get("Lead_Month","") or "").strip()
@@ -613,6 +621,8 @@ def build_aggregations(all_rows, model_to_bu=None):
         "bu_lt":         dict(bu_lt),
         "bu_model":      dict(bu_model),
         "model_bu":      model_bu_map,
+        "dealer_code":   dealer_code_map,
+        "dealer_name":   dealer_name_map,
         "state_month":   {k: {m: v.get(m,0) for m in months_present} for k,v in state_month.items()},
         "city_month":    {k: {m: v.get(m,0) for m in months_present} for k,v in city_month.items()},
         "model_month":   {k: {m: v.get(m,0) for m in months_present} for k,v in model_month.items()},
