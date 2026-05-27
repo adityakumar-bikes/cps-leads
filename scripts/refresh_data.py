@@ -57,7 +57,8 @@ SKIP_SHEETS = {
 
 VALID_BRANDS = {
     "ather", "bgauss", "ampere electric", "ampere", "vespa", "aprilia", "piaggio",
-    "ola electric", "ola", "bajaj", "ktm", "triumph", "husqvarna motorcycles",
+    "ola electric", "ola", "bajaj", "bajaj chetak", "ktm", "triumph",
+    "husqvarna motorcycles", "husqvarna",
 }
 
 # Normalize short brand names → canonical display names (for consistent aggregation)
@@ -66,6 +67,8 @@ BRAND_NORMALIZE = {
     "ampere electric": "Ampere Electric",
     "ola": "Ola Electric",
     "ola electric": "Ola Electric",
+    "bajaj chetak": "Bajaj",
+    "husqvarna": "Husqvarna Motorcycles",
 }
 
 def is_brand_sheet(sheet_label: str) -> bool:
@@ -273,11 +276,11 @@ def export_via_sheets_api(sheets_svc, file_id, file_name):
         header_row = values[0]
         header = [str(h).strip() for h in header_row]
 
-        # Map header → canonical COLS
+        # Map header → canonical COLS (first occurrence wins — sheets can have duplicate col names)
         hdr_map = {}   # canonical_col → column_index
         for idx, h in enumerate(header):
             h_l = h.lower()
-            if h_l in cols_lower:
+            if h_l in cols_lower and cols_lower[h_l] not in hdr_map:
                 hdr_map[cols_lower[h_l]] = idx
 
         if "brand" not in hdr_map or "Medium" not in hdr_map:
@@ -349,12 +352,12 @@ def parse_zip_rows(zip_buf, file_name):
             if not reader.fieldnames:
                 continue
 
-            # Map CSV header names → our canonical COLS
+            # Map CSV header names → our canonical COLS (first occurrence wins)
             hdr_map = {}   # canonical_col → csv_fieldname
             fns = [fn.strip() for fn in reader.fieldnames]
             for fn in fns:
                 fn_l = fn.lower()
-                if fn_l in cols_lower:
+                if fn_l in cols_lower and cols_lower[fn_l] not in hdr_map:
                     hdr_map[cols_lower[fn_l]] = fn
 
             # Need at least brand + Medium to be useful
