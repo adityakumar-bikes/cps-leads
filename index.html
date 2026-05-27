@@ -885,9 +885,9 @@ function renderDlrPage(){
   // Data rows
   rows.slice(start,end).forEach(([name,cnt],i)=>{
     const city=dlrCity(name);const state=dlrState(name);
-    const code=D.dealer_code?.[name]||'';
+    const _di=name.indexOf(' · ');const crm=_di>=0?name.slice(0,_di).trim():'';
     const dname=D.dealer_name?.[name]||'';
-    const dispName=name==='Unknown'?'(No CRM ID)':(dname?(code?`${code} — ${dname}`:dname):(code||name));
+    const dispName=name==='Unknown'?'(No CRM ID)':(dname?(crm?`${crm} — ${dname}`:dname):(crm||name));
     const sharePct=subTotal>0?cnt/subTotal*100:0;
     const shareBar=Math.round(sharePct);
     const scale=cnt/(D.by_dealer[name]||1);
@@ -1208,9 +1208,9 @@ function _flCityPanel(flag){
     const pct=cityTotal>0?(d.cnt/cityTotal*100).toFixed(1):0;
     const isFlagged=d.name===flag.entity;
     const barCol=isFlagged?'#e94560':'#4dabf7';
-    const code=D.dealer_code?.[d.name]||'';
+    const _dci=d.name.indexOf(' · ');const crm=_dci>=0?d.name.slice(0,_dci).trim():'';
     const dname=D.dealer_name?.[d.name]||'';
-    const raw=dname?(code?`${code} — ${dname}`:dname):(code||dlrCity(d.name));
+    const raw=dname?(crm?`${crm} — ${dname}`:dname):(crm||dlrCity(d.name));
     const disp=raw.length>24?raw.slice(0,24)+'…':raw;
     h+=`<div style="margin-bottom:6px">`;
     h+=`<div style="display:flex;justify-content:space-between;font-size:.72rem;margin-bottom:2px">`;
@@ -1304,11 +1304,11 @@ function renderFlags(){
 
   let html='';
   for(const flag of page){
-    const code=D.dealer_code?.[flag.entity]||'';
+    const _dfi=flag.entity.indexOf(' · ');
+    const crm=_dfi>=0?flag.entity.slice(0,_dfi).trim():'';
     const dname=D.dealer_name?.[flag.entity]||'';
-    const dotIdx=flag.entity.indexOf(' · ');
-    const fallback=dotIdx>=0?flag.entity.slice(dotIdx+3):flag.entity;
-    const dispLabel=dname?(code?`${code} — ${dname}`:dname):(fallback.length>50?fallback.slice(0,50)+'…':fallback);
+    const fallback=_dfi>=0?flag.entity.slice(_dfi+3):flag.entity;
+    const dispLabel=dname?(crm?`${crm} — ${dname}`:dname):(crm||(fallback.length>50?fallback.slice(0,50)+'…':fallback));
     html+=`<div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:10px;background:var(--bg2)">`;
     html+=`<div style="flex:1;padding:14px 16px;border-right:1px solid var(--border)">`;
     html+=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">`;
