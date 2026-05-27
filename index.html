@@ -943,9 +943,10 @@ function _getMoMRows(dim){
     else modelSet=Object.keys(D.by_model);
     for(const mo of modelSet){
       const md={};const moTotal=D.by_model[mo]||1;let scale=1;
-      if(_hasF(fBrand))scale=_sumKeys(D.model_brand[mo]||{},fBrand)/moTotal;
+      if(_hasF(fBrand)&&_hasF(fMedium)){scale=fBrand.reduce((s,b)=>{const bv=D.model_brand[mo]?.[b]||0;const bTotal=D.by_brand[b]||1;return s+bv*_sumKeys(D.brand_medium[b]||{},fMedium)/bTotal;},0)/moTotal;}
+      else if(_hasF(fBrand))scale=_sumKeys(D.model_brand[mo]||{},fBrand)/moTotal;
       else if(_hasF(fBU))scale=fBU.reduce((s,bu)=>s+(D.bu_model?.[bu]?.[mo]||0),0)/moTotal;
-      else if(_hasF(fMedium))scale=fMedium.reduce((s,med)=>s+(D.by_medium?.[med]||0),0)/(D.total||1);
+      else if(_hasF(fMedium)){scale=Object.entries(D.model_brand[mo]||{}).reduce((s,[b,bv])=>{const bTotal=D.by_brand[b]||1;return s+bv*_sumKeys(D.brand_medium[b]||{},fMedium)/bTotal;},0)/moTotal;}
       for(const m of months)md[m]=Math.round((D.model_month?.[mo]?.[m]||0)*scale);
       pushRow(mo,md);
     }
