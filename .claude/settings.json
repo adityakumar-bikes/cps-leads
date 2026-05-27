@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd=$(jq -r '.tool_input.command'); echo \"$cmd\" | grep -q 'git commit' && cd /Users/adityakumar/Downloads/Bajaj/cps-lead-dashboard && git push 2>/dev/null || true",
+            "statusMessage": "Pushing to remote..."
+          }
+        ]
+      }
+    ]
+  }
+}
