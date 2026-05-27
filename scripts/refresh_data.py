@@ -129,6 +129,9 @@ MONTH_ORDER = [
     "Jul'2026","Aug'2026","Sep'2026","Oct'2026","Nov'2026","Dec'2026",
 ]
 
+# Months to exclude from all aggregations and dashboard output
+SKIP_MONTHS = {"Mar'2025"}
+
 
 # ── Auth & Drive helpers ─────────────────────────────────────────────────────
 
@@ -524,6 +527,8 @@ def build_aggregations(all_rows, model_to_bu=None):
 
         if not brand or brand.lower() not in VALID_BRANDS:
             continue
+        if month in SKIP_MONTHS:
+            continue
 
         brands_set.add(brand)
         months_seen.add(month)
@@ -580,7 +585,7 @@ def build_aggregations(all_rows, model_to_bu=None):
     brands_all = sorted(brands_set)
 
     return {
-        "total":         len(all_rows),
+        "total":         sum(by_brand.values()),
         "brands_all":    brands_all,
         "mediums_all":   list(srt(by_medium).keys()),
         "months_present":months_present,
