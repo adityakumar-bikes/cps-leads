@@ -253,7 +253,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
       <span class="pg-info" id="dlr-pg-info"></span>
       <button class="pg-btn" id="dlr-prev" onclick="dlrPage(-1)">‹ Prev</button>
       <button class="pg-btn" id="dlr-next" onclick="dlrPage(1)">Next ›</button>
-    </div><div id="tbl-dealer-wrap"></div></div>
+    </div><div id="tbl-dealer-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"></div></div>
 </div></div>
 
 <div class="tc" id="tc-model"><div class="panel">
@@ -784,6 +784,12 @@ function getFilteredDealers(){
     else if(_hasF(fMedium))cnt=_sumKeys(D.dealer_medium?.[d]||{},fMedium);
     else if(_hasF(fMonth))cnt=_sumKeys(D.dealer_month?.[d]||{},fMonth);
     else cnt=D.by_dealer[d]||0;
+    // Apply month scale when month is active alongside another filter
+    if(_hasF(fMonth)&&(_hasF(fBrand)||_hasF(fBU)||_hasF(fMedium)||_hasF(fModel))){
+      const rawTotal=D.by_dealer[d]||1;
+      const moScale=_sumKeys(D.dealer_month?.[d]||{},fMonth)/rawTotal;
+      cnt=Math.round(cnt*moScale);
+    }
     if(cnt>0)res[d]=cnt;
   }
   return res;
@@ -852,20 +858,29 @@ function renderDlrPage(){
   const grandMD={};
   for(const m of months)grandMD[m]=rows.reduce((s,[name,cnt])=>{const scale=cnt/(D.by_dealer[name]||1);return s+Math.round((D.dealer_month?.[name]?.[m]||0)*scale);},0);
   const grandMax=Math.max(1,...months.map(m=>grandMD[m]||0));
-  let html=`<table class="tbl" style="font-size:.76rem"><thead><tr style="position:sticky;top:0;z-index:3">`;
+  // Build header: # | Dealer | City | State | Total | Share% | [m | m%] ...
+  let html=`<table class="tbl" style="font-size:.76rem;white-space:nowrap"><thead><tr style="position:sticky;top:0;z-index:3">`;
   html+=`<th style="position:sticky;left:0;z-index:4;background:var(--bg)">#</th>`;
   html+=`<th style="position:sticky;left:26px;z-index:4;background:var(--bg);min-width:160px">Dealer</th>`;
-  html+=`<th style="min-width:90px">City</th><th style="min-width:70px">State</th>`;
-  html+=`<th class="num" style="min-width:70px">Total</th>`;
-  html+=`<th class="num" style="min-width:68px">Share%</th>`;
-  for(const m of months)html+=`<th class="num" style="min-width:68px;white-space:nowrap">${m}</th>`;
+  html+=`<th style="min-width:80px">City</th><th style="min-width:65px">State</th>`;
+  html+=`<th class="num" style="min-width:68px">Total</th>`;
+  html+=`<th class="num" style="min-width:56px">Share%</th>`;
+  for(const m of months){
+    html+=`<th class="num" style="min-width:62px">${m}</th>`;
+    html+=`<th class="num" style="min-width:50px;color:var(--muted);font-size:.68rem">%</th>`;
+  }
   html+=`</tr></thead><tbody>`;
   // Subtotal row
   html+=`<tr style="background:rgba(108,99,255,.1);font-weight:700;border-bottom:2px solid var(--border)">`;
   html+=`<td style="position:sticky;left:0;background:rgba(108,99,255,.1);color:var(--muted);z-index:1">∑</td>`;
   html+=`<td style="position:sticky;left:26px;background:rgba(108,99,255,.1);z-index:1">Subtotal (${rows.length.toLocaleString()})</td>`;
   html+=`<td></td><td></td><td class="num">${fmtN(subTotal)}</td><td class="num" style="color:var(--muted);font-size:.72rem">100%</td>`;
-  for(const m of months){const v=grandMD[m]||0;const heat=grandMax>0?Math.round(v/grandMax*100):0;html+=`<td class="num" style="background:rgba(77,171,247,${(heat*.003).toFixed(3)})">${v>0?fmtN(v):'—'}</td>`;}
+  for(const m of months){
+    const v=grandMD[m]||0;
+    const heat=grandMax>0?Math.round(v/grandMax*100):0;
+    html+=`<td class="num" style="background:rgba(77,171,247,${(heat*.003).toFixed(3)})">${v>0?fmtN(v):'—'}</td>`;
+    html+=`<td class="num" style="color:var(--muted);font-size:.72rem">100%</td>`;
+  }
   html+=`</tr>`;
   // Data rows
   rows.slice(start,end).forEach(([name,cnt],i)=>{
@@ -876,15 +891,21 @@ function renderDlrPage(){
     const sharePct=subTotal>0?cnt/subTotal*100:0;
     const shareBar=Math.round(sharePct);
     const scale=cnt/(D.by_dealer[name]||1);
-    // Per-row max for heat colouring
     const rMax=Math.max(1,...months.map(m=>Math.round((D.dealer_month?.[name]?.[m]||0)*scale)));
     html+=`<tr>`;
     html+=`<td style="position:sticky;left:0;background:var(--bg2);color:var(--muted);z-index:1">${start+i+1}</td>`;
-    html+=`<td style="position:sticky;left:26px;background:var(--bg2);z-index:1;min-width:200px" title="${name}"><strong>${dispName.length>45?dispName.slice(0,45)+'…':dispName}</strong></td>`;
-    html+=`<td style="font-size:.73rem">${city||'—'}</td><td style="color:var(--muted);font-size:.73rem">${state||'—'}</td>`;
+    html+=`<td style="position:sticky;left:26px;background:var(--bg2);z-index:1;min-width:180px;max-width:220px;overflow:hidden;text-overflow:ellipsis" title="${name}"><strong>${dispName.length>40?dispName.slice(0,40)+'…':dispName}</strong></td>`;
+    html+=`<td style="font-size:.73rem;max-width:90px;overflow:hidden;text-overflow:ellipsis">${city||'—'}</td>`;
+    html+=`<td style="color:var(--muted);font-size:.73rem">${state||'—'}</td>`;
     html+=`<td class="num">${fmtN(cnt)}</td>`;
     html+=`<td class="num" style="position:relative;overflow:hidden"><span style="position:absolute;left:0;top:0;height:100%;width:${shareBar}%;background:rgba(108,99,255,.13);pointer-events:none"></span><span style="position:relative">${sharePct.toFixed(1)}%</span></td>`;
-    for(const m of months){const v=Math.round((D.dealer_month?.[name]?.[m]||0)*scale);const heat=rMax>0?Math.round(v/rMax*100):0;html+=`<td class="num" style="background:rgba(77,171,247,${(heat*.003).toFixed(3)})">${v>0?fmtN(v):'—'}</td>`;}
+    for(const m of months){
+      const v=Math.round((D.dealer_month?.[name]?.[m]||0)*scale);
+      const heat=rMax>0?Math.round(v/rMax*100):0;
+      const mShare=grandMD[m]>0?v/grandMD[m]*100:0;
+      html+=`<td class="num" style="background:rgba(77,171,247,${(heat*.003).toFixed(3)})">${v>0?fmtN(v):'—'}</td>`;
+      html+=`<td class="num" style="color:var(--muted);font-size:.72rem">${v>0?mShare.toFixed(1)+'%':'—'}</td>`;
+    }
     html+=`</tr>`;
   });
   html+='</tbody></table>';document.getElementById('tbl-dealer-wrap').innerHTML=html;
