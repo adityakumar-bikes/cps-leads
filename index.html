@@ -316,8 +316,8 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
     <div class="ctitle">All Flags</div>
     <div class="srch-row" style="flex-wrap:wrap;gap:8px;margin-bottom:12px">
       <select id="fl-state-f" onchange="_flStateChanged()" style="background:var(--card);color:var(--txt);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:.82rem;cursor:pointer;outline:none"><option value="">All States</option></select>
-      <select id="fl-city-f" onchange="renderFlags()" style="background:var(--card);color:var(--txt);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:.82rem;cursor:pointer;outline:none"><option value="">All Cities</option></select>
-      <input class="srch" id="fl-srch" placeholder="Search dealer or city…" oninput="renderFlags()" style="width:210px">
+      <select id="fl-city-f" onchange="flPage=0;renderFlags()" style="background:var(--card);color:var(--txt);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:.82rem;cursor:pointer;outline:none"><option value="">All Cities</option></select>
+      <input class="srch" id="fl-srch" placeholder="Search dealer, city or brand…" oninput="flPage=0;renderFlags()" style="width:210px">
       <span class="pg-info" id="fl-pg-info" style="margin-left:auto;font-size:.78rem;color:var(--muted)"></span>
     </div>
     <div id="fl-cards"></div>
@@ -431,6 +431,7 @@ function mkChart(id,type,labels,datasets,opts){
   charts[id]=new Chart(ctx,{type,data:{labels,datasets},options:opts});
 }
 let fBrand=[],fMedium=[],fMonth=[],fModel=[],fBU=[];
+let flPage=0;const FL_PG=50;
 window.addEventListener('DOMContentLoaded',()=>{
   msSetOptions('brand',D.brands_all);
   msSetOptions('medium',D.mediums_all);
@@ -605,7 +606,7 @@ function renderTab(name){
   else if(name==='model')renderModel();
   else if(name==='trend')renderTrend();
   else if(name==='mom')renderMoM();
-  else if(name==='fl')renderFlags();
+  else if(name==='fl'){flPage=0;renderFlags();}
 }
 function renderOverview(){
   const bt=filteredBrandTotals();const bE=Object.entries(bt).sort((a,b)=>b[1]-a[1]);
@@ -1110,34 +1111,44 @@ function renderMoM(){
 
 // ─── Business Flags ──────────────────────────────────────────────────────────
 function _fmtShare(s){return(s<1?s<0.1?s.toFixed(2):s.toFixed(1):s.toFixed(1))+'%';}
+
 function computeFlags(){
-  const dlrs=getFilteredDealers();
-  const MIN_LEADS=10; // ignore ghost dealers with <10 leads
-  const cityMap={};
-  for(const [name,cnt] of Object.entries(dlrs)){
-    if(cnt<MIN_LEADS)continue;
-    const city=dlrCity(name);const state=dlrState(name);
-    if(!city)continue;
-    if(!cityMap[city])cityMap[city]={state,dealers:[]};
-    cityMap[city].dealers.push({name,cnt});
-  }
+  // Require brand selection — flags are always brand-specific
+  if(!_hasF(fBrand))return null;
+  const MIN_LEADS=10;
   const flags=[];
-  for(const [city,{state,dealers}] of Object.entries(cityMap)){
-    if(dealers.length<2)continue;
-    const cityTotal=dealers.reduce((s,d)=>s+d.cnt,0);
-    for(const d of dealers){
-      const share=cityTotal>0?d.cnt/cityTotal*100:0;
-      if(share<30){
-        flags.push({
-          severity:'RED',category:'Supply Concentration',
-          entity:d.name,metric:'City Lead Share',
-          value:_fmtShare(share),threshold:'<30% (under-supplied)',
-          description:`Dealer receives only ${_fmtShare(share)} of ${city} leads`,
-          dealers_in_city:dealers.length,city,state,
-          dealer_cnt:d.cnt,city_total:cityTotal,
-          all_dealers:dealers,
-          _share:share
-        });
+  for(const brand of fBrand){
+    const cityMap={};
+    for(const [dk,brandMap] of Object.entries(D.dealer_brand)){
+      let cnt=brandMap[brand]||0;
+      if(!cnt)continue;
+      if(_hasF(fMonth)){
+        const dlrTotal=D.by_dealer[dk]||1;
+        const moScale=_sumKeys(D.dealer_month?.[dk]||{},fMonth)/dlrTotal;
+        cnt=Math.round(cnt*moScale);
+      }
+      if(cnt<MIN_LEADS)continue;
+      const city=dlrCity(dk);const state=dlrState(dk);
+      if(!city)continue;
+      if(!cityMap[city])cityMap[city]={state,dealers:[]};
+      cityMap[city].dealers.push({name:dk,cnt});
+    }
+    for(const [city,{state,dealers}] of Object.entries(cityMap)){
+      if(dealers.length<2)continue;
+      const cityTotal=dealers.reduce((s,d)=>s+d.cnt,0);
+      for(const d of dealers){
+        const share=cityTotal>0?d.cnt/cityTotal*100:0;
+        if(share<30){
+          flags.push({
+            severity:'RED',category:'Supply Concentration',
+            entity:d.name,metric:'City Lead Share',brand,
+            value:_fmtShare(share),threshold:'<30% (under-supplied)',
+            description:`Dealer receives only ${_fmtShare(share)} of ${city} leads for ${brand}`,
+            dealers_in_city:dealers.length,city,state,
+            dealer_cnt:d.cnt,city_total:cityTotal,
+            all_dealers:dealers,_share:share
+          });
+        }
       }
     }
   }
@@ -1148,15 +1159,15 @@ function computeFlags(){
 function _flCityPanel(flag){
   const sorted=[...flag.all_dealers].sort((a,b)=>b.cnt-a.cnt);
   const cityTotal=flag.city_total;
-  let h=`<div style="font-size:.72rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">${flag.city} Allocation</div>`;
+  let h=`<div style="font-size:.72rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">${flag.city} — ${flag.brand}</div>`;
   for(const d of sorted){
     const pct=cityTotal>0?(d.cnt/cityTotal*100).toFixed(1):0;
     const isFlagged=d.name===flag.entity;
     const barCol=isFlagged?'#e94560':'#4dabf7';
-    const dotIdx=d.name.indexOf(' · ');
-    const raw=dotIdx>=0?d.name.slice(dotIdx+3):d.name;
-    const label=raw.split(',')[0];
-    const disp=label.length>22?label.slice(0,22)+'…':label;
+    const code=D.dealer_code?.[d.name]||'';
+    const dname=D.dealer_name?.[d.name]||'';
+    const raw=dname?(code?`${code} — ${dname}`:dname):(code||dlrCity(d.name));
+    const disp=raw.length>24?raw.slice(0,24)+'…':raw;
     h+=`<div style="margin-bottom:6px">`;
     h+=`<div style="display:flex;justify-content:space-between;font-size:.72rem;margin-bottom:2px">`;
     h+=`<span style="${isFlagged?'color:#e94560;font-weight:700':'color:var(--txt)'}" title="${d.name}">${disp}</span>`;
@@ -1167,11 +1178,12 @@ function _flCityPanel(flag){
 }
 
 function _flStateChanged(){
+  flPage=0;
   const state=document.getElementById('fl-state-f').value;
   const cityEl=document.getElementById('fl-city-f');
   const prev=cityEl.value;
   cityEl.innerHTML='<option value="">All Cities</option>';
-  const flags=computeFlags();
+  const flags=computeFlags()||[];
   const cities=new Set();
   for(const f of flags){if(!state||f.state===state)cities.add(f.city);}
   for(const c of [...cities].sort())cityEl.innerHTML+=`<option value="${c}">${c}</option>`;
@@ -1183,17 +1195,24 @@ function renderFlags(){
   const flags=computeFlags();
   const summaryEl=document.getElementById('fl-summary-content');
   const cardsEl=document.getElementById('fl-cards');
+
+  if(flags===null){
+    summaryEl.innerHTML='<p style="color:var(--muted);font-size:.88rem;padding:12px 0">👆 Select a <strong>Brand</strong> from the top filter to view supply concentration flags.</p>';
+    cardsEl.innerHTML='';
+    document.getElementById('fl-pg-info').textContent='';
+    mkChart('ch-fl-city','bar',[],[],hBarOpts());
+    return;
+  }
   if(!flags.length){
     summaryEl.innerHTML='<p style="color:var(--muted);font-size:.85rem;padding:12px 0">No flags for current filter selection.</p>';
     cardsEl.innerHTML='';
     mkChart('ch-fl-city','bar',[],[],hBarOpts());
     return;
   }
-  // City counts
+
   const cityCounts={};
   for(const f of flags)cityCounts[f.city]=(cityCounts[f.city]||0)+1;
 
-  // State filter sync
   const stateEl=document.getElementById('fl-state-f');
   const prevState=stateEl.value;
   stateEl.innerHTML='<option value="">All States</option>';
@@ -1201,7 +1220,6 @@ function renderFlags(){
   for(const s of allStates)stateEl.innerHTML+=`<option value="${s}">${s}</option>`;
   if(allStates.includes(prevState))stateEl.value=prevState;
 
-  // City filter sync
   const cityEl=document.getElementById('fl-city-f');
   const prevCity=cityEl.value;
   cityEl.innerHTML='<option value="">All Cities</option>';
@@ -1210,50 +1228,49 @@ function renderFlags(){
   for(const c of allCities)cityEl.innerHTML+=`<option value="${c}">${c}</option>`;
   if(allCities.includes(prevCity))cityEl.value=prevCity;
 
-  // Summary box
-  const topCitiesByCount=Object.entries(cityCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const topCities=Object.entries(cityCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
   let sumHtml=`<div style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap">`;
   sumHtml+=`<div><div style="font-size:2.2rem;font-weight:800;color:#e94560;line-height:1">${flags.length}</div>`;
   sumHtml+=`<div style="font-size:.75rem;color:var(--muted);margin-top:3px">supply concentration flags</div>`;
-  sumHtml+=`<div style="font-size:.72rem;color:var(--muted);margin-top:10px;line-height:1.5">Dealers receiving &lt;30%<br>of city leads (2+ dealers in city)</div></div>`;
+  sumHtml+=`<div style="font-size:.72rem;color:var(--muted);margin-top:10px;line-height:1.5">Dealers receiving &lt;30%<br>of city leads (per brand, 2+ dealers)</div></div>`;
   sumHtml+=`<div style="border-left:1px solid var(--border);padding-left:18px">`;
   sumHtml+=`<div style="font-size:.72rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:7px">Top Cities Affected</div>`;
-  for(const [city,cnt] of topCitiesByCount){
-    sumHtml+=`<div style="font-size:.8rem;margin-bottom:4px"><span style="color:var(--txt)">${city}</span>&nbsp;<span style="color:#e94560;font-weight:700">${cnt} flag${cnt>1?'s':''}</span></div>`;
-  }
+  for(const [city,cnt] of topCities)sumHtml+=`<div style="font-size:.8rem;margin-bottom:4px"><span style="color:var(--txt)">${city}</span>&nbsp;<span style="color:#e94560;font-weight:700">${cnt} flag${cnt>1?'s':''}</span></div>`;
   sumHtml+=`</div></div>`;
   summaryEl.innerHTML=sumHtml;
 
-  // City bar chart (top 10)
   const cityLabels=Object.keys(cityCounts).sort((a,b)=>cityCounts[b]-cityCounts[a]).slice(0,10);
   const hbO=hBarOpts();hbO.plugins.datalabels={display:false};
   mkChart('ch-fl-city','bar',cityLabels,[{label:'Flags',data:cityLabels.map(c=>cityCounts[c]),backgroundColor:'rgba(233,69,96,.75)',borderRadius:4}],hbO);
 
-  // Apply in-tab filters
-  const stF2=stateEl.value;
-  const ctF=cityEl.value;
+  const stF2=stateEl.value;const ctF=cityEl.value;
   const srch=(document.getElementById('fl-srch').value||'').toLowerCase();
   const filtered=flags.filter(f=>{
     if(stF2&&f.state!==stF2)return false;
     if(ctF&&f.city!==ctF)return false;
-    if(srch&&!f.entity.toLowerCase().includes(srch)&&!f.city.toLowerCase().includes(srch))return false;
+    if(srch&&!f.entity.toLowerCase().includes(srch)&&!f.city.toLowerCase().includes(srch)&&!f.brand.toLowerCase().includes(srch))return false;
     return true;
   });
 
-  document.getElementById('fl-pg-info').textContent=`${filtered.length} flag${filtered.length!==1?'s':''}`;
+  const total=filtered.length;
+  const start=flPage*FL_PG;
+  const end=Math.min(start+FL_PG,total);
+  const page=filtered.slice(start,end);
+  document.getElementById('fl-pg-info').textContent=`${total} flag${total!==1?'s':''} · showing ${start+1}–${end}`;
 
-  // Render flag cards
   let html='';
-  for(const flag of filtered){
+  for(const flag of page){
+    const code=D.dealer_code?.[flag.entity]||'';
+    const dname=D.dealer_name?.[flag.entity]||'';
     const dotIdx=flag.entity.indexOf(' · ');
-    const dealerLabel=dotIdx>=0?flag.entity.slice(dotIdx+3):flag.entity;
-    const dispLabel=dealerLabel.length>50?dealerLabel.slice(0,50)+'…':dealerLabel;
+    const fallback=dotIdx>=0?flag.entity.slice(dotIdx+3):flag.entity;
+    const dispLabel=dname?(code?`${code} — ${dname}`:dname):(fallback.length>50?fallback.slice(0,50)+'…':fallback);
     html+=`<div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:10px;background:var(--bg2)">`;
-    // Left panel
     html+=`<div style="flex:1;padding:14px 16px;border-right:1px solid var(--border)">`;
     html+=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">`;
     html+=`<span style="background:#e94560;color:#fff;font-size:.68rem;font-weight:700;padding:2px 9px;border-radius:10px">🚩 RED</span>`;
     html+=`<span style="font-size:.7rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px">${flag.category}</span>`;
+    html+=`<span class="badge" style="margin-left:auto;background:${BCOL[flag.brand]||'#8b949e'}22;color:${BCOL[flag.brand]||'#8b949e'}">${flag.brand}</span>`;
     html+=`</div>`;
     html+=`<div style="font-size:.88rem;font-weight:700;color:var(--txt);margin-bottom:3px" title="${flag.entity}">${dispLabel}</div>`;
     html+=`<div style="font-size:.78rem;color:var(--muted);margin-bottom:10px">📍 ${flag.city}, ${flag.state}</div>`;
@@ -1263,12 +1280,19 @@ function renderFlags(){
     html+=`</div>`;
     html+=`<div style="font-size:.74rem;color:var(--muted);margin-bottom:5px">Threshold: ${flag.threshold}</div>`;
     html+=`<div style="font-size:.78rem;color:var(--txt);margin-bottom:6px">${flag.description}</div>`;
-    html+=`<div style="font-size:.72rem;color:var(--muted)">${flag.dealer_cnt.toLocaleString()} leads &bull; ${flag.dealers_in_city} dealers in city &bull; ${flag.city_total.toLocaleString()} city total</div>`;
+    html+=`<div style="font-size:.72rem;color:var(--muted)">${flag.dealer_cnt.toLocaleString()} leads &bull; ${flag.dealers_in_city} ${flag.brand} dealers in city &bull; ${flag.city_total.toLocaleString()} city total</div>`;
     html+=`</div>`;
-    // Right panel – city allocation bars
     html+=`<div style="width:230px;flex-shrink:0;padding:14px 16px;background:var(--bg3)">`;
     html+=_flCityPanel(flag);
     html+=`</div></div>`;
+  }
+  if(total>FL_PG){
+    const totalPages=Math.ceil(total/FL_PG);
+    html+=`<div style="display:flex;align-items:center;gap:10px;padding:12px 0;justify-content:center">`;
+    html+=`<button onclick="flPage=Math.max(0,flPage-1);renderFlags()" ${flPage===0?'disabled':''} style="background:var(--card);border:1px solid var(--border);color:var(--txt);padding:5px 14px;border-radius:6px;cursor:pointer;font-size:.82rem">← Prev</button>`;
+    html+=`<span style="font-size:.82rem;color:var(--muted)">Page ${flPage+1} / ${totalPages}</span>`;
+    html+=`<button onclick="flPage=Math.min(${totalPages-1},flPage+1);renderFlags()" ${flPage>=totalPages-1?'disabled':''} style="background:var(--card);border:1px solid var(--border);color:var(--txt);padding:5px 14px;border-radius:6px;cursor:pointer;font-size:.82rem">Next →</button>`;
+    html+=`</div>`;
   }
   if(!html)html=`<div style="color:var(--muted);font-size:.85rem;padding:16px 0">No flags match current filters.</div>`;
   cardsEl.innerHTML=html;
