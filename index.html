@@ -1024,6 +1024,7 @@ function renderMoM(){
   html+=`<th style="position:sticky;left:0;z-index:4;background:var(--bg);min-width:24px">#</th>`;
   html+=`<th style="position:sticky;left:26px;z-index:4;background:var(--bg);min-width:140px;max-width:240px">${dim.charAt(0).toUpperCase()+dim.slice(1)}</th>`;
   html+=`<th class="num" style="min-width:70px">Total</th>`;
+  html+=`<th class="num" style="min-width:68px">Share%</th>`;
   for(const m of months)html+=`<th class="num" style="min-width:68px;white-space:nowrap">${m}</th>`;
   html+=`</tr></thead><tbody>`;
 
@@ -1032,6 +1033,7 @@ function renderMoM(){
   html+=`<td style="position:sticky;left:0;background:rgba(108,99,255,.1);color:var(--muted);z-index:1">∑</td>`;
   html+=`<td style="position:sticky;left:26px;background:rgba(108,99,255,.1);z-index:1">Subtotal</td>`;
   html+=`<td class="num">${fmtN(grandTotal)}</td>`;
+  html+=`<td class="num" style="color:var(--muted);font-size:.72rem">100%</td>`;
   for(const m of months){
     const v=grandMD[m]||0;
     const heat=grandMax>0?Math.round(v/grandMax*100):0;
@@ -1048,6 +1050,9 @@ function renderMoM(){
     html+=`<td style="position:sticky;left:0;background:var(--bg2);color:var(--muted);z-index:1">${i+1}</td>`;
     html+=`<td style="position:sticky;left:26px;background:var(--bg2);z-index:1" title="${r.label}"><strong>${shortLabel}</strong></td>`;
     html+=`<td class="num">${fmtN(r.total)}</td>`;
+    const sharePct=grandTotal>0?r.total/grandTotal*100:0;
+    const shareBar=Math.round(sharePct);
+    html+=`<td class="num" style="position:relative;overflow:hidden;white-space:nowrap"><span style="position:absolute;left:0;top:0;height:100%;width:${shareBar}%;background:rgba(108,99,255,.13);pointer-events:none"></span><span style="position:relative">${sharePct<0.1?sharePct.toFixed(2):sharePct<10?sharePct.toFixed(1):sharePct.toFixed(1)}%</span></td>`;
     for(const m of months){
       const v=r.monthData[m]||0;
       const heat=rMax>0?Math.round(v/rMax*100):0;
