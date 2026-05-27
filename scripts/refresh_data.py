@@ -393,10 +393,13 @@ def deduplicate(rows):
     seen = set()
     out = []
     for r in rows:
-        key = (r.get("enquiryId") or
-               r.get("id_verified_lead") or
-               r.get("encrypt_mobile_number") or None)
-        if key:
+        key = (
+            r.get("brand")                  or "",
+            r.get("encrypt_mobile_number")  or "",
+            r.get("Lead_Month")             or "",
+            r.get("opty_id")                or "",
+        )
+        if any(key):
             if key in seen:
                 continue
             seen.add(key)
