@@ -71,6 +71,13 @@ BRAND_NORMALIZE = {
     "husqvarna": "Husqvarna Motorcycles",
 }
 
+# Merge sub-brands into parent brand (applied AFTER BU is computed so BU is unaffected)
+BRAND_ALIASES = {
+    "ktm":                   "Bajaj",
+    "triumph":               "Bajaj",
+    "husqvarna motorcycles": "Bajaj",
+}
+
 def is_brand_sheet(sheet_label: str) -> bool:
     """Return True only if this sheet name looks like a brand data sheet.
 
@@ -302,8 +309,9 @@ def export_via_sheets_api(sheets_svc, file_id, file_name):
             row = {}
             for col, idx in hdr_map.items():
                 row[col] = str(data_row[idx]).strip() if idx < len(data_row) else ""
-            # Normalize brand name in stored row
-            row["brand"] = BRAND_NORMALIZE.get(row["brand"].lower(), row["brand"])
+            # Normalize brand name in stored row (BRAND_NORMALIZE then BRAND_ALIASES)
+            b = BRAND_NORMALIZE.get(row["brand"].lower(), row["brand"])
+            row["brand"] = BRAND_ALIASES.get(b.lower(), b)
             rows.append(row)
             sheet_rows += 1
 
@@ -376,8 +384,9 @@ def parse_zip_rows(zip_buf, file_name):
                 row = {}
                 for col, fn in hdr_map.items():
                     row[col] = str(raw_row.get(fn, "") or "").strip()
-                # Normalize brand name
-                row["brand"] = BRAND_NORMALIZE.get(row["brand"].lower(), row["brand"])
+                # Normalize brand name (BRAND_NORMALIZE then BRAND_ALIASES)
+                b = BRAND_NORMALIZE.get(row["brand"].lower(), row["brand"])
+                row["brand"] = BRAND_ALIASES.get(b.lower(), b)
                 rows.append(row)
                 sheet_rows += 1
 
@@ -426,7 +435,7 @@ def load_model_bu_mapping(repo_root):
     """
     xlsx_path = os.path.join(repo_root, "Bajaj Mapping.xlsx")
     if not os.path.exists(xlsx_path):
-        print("Warning: 'Bajaj Mapping.xlsx' not found — BU data will be absent")
+        print("Bajaj Mapping.xlsx not present — BU will fall back to brand name (intentional)")
         return {}
     try:
         wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
@@ -520,7 +529,9 @@ def build_aggregations(all_rows, model_to_bu=None):
 
     for r in all_rows:
         brand   = str(r.get("brand",  "") or "").strip()
-        brand   = BRAND_NORMALIZE.get(brand.lower(), brand)   # normalize "Ampere"→"Ampere Electric" etc.
+        brand   = BRAND_NORMALIZE.get(brand.lower(), brand)   # idempotent — stored rows already normalized
+        brand_raw = brand                                       # pre-alias brand for BU fallback
+        brand   = BRAND_ALIASES.get(brand.lower(), brand)     # idempotent — stored rows already aliased
         medium  = str(r.get("Medium", "") or "").strip() or "Unknown"
         state   = str(r.get("State",  "") or "").strip() or "Unknown"
         city    = str(r.get("City",   "") or "").strip() or "Unknown"
@@ -539,7 +550,7 @@ def build_aggregations(all_rows, model_to_bu=None):
         lt      = norm_lt(r.get("lead_type",""))
         month   = str(r.get("Lead_Month","") or "").strip()
 
-        if not brand or brand.lower() not in VALID_BRANDS:
+        if not brand_raw or brand_raw.lower() not in VALID_BRANDS:
             continue
         if month in SKIP_MONTHS:
             continue
@@ -575,8 +586,8 @@ def build_aggregations(all_rows, model_to_bu=None):
         inc(city_month[city],     month)
         inc(model_month[model],   month)
 
-        # BU aggregations — mapped models use the xlsx BU, all others fall back to brand
-        bu = normalize_bu(model_to_bu.get(model.lower(), brand) if model_to_bu else brand)
+        # BU aggregations — mapped models use the xlsx BU, all others fall back to pre-alias brand
+        bu = normalize_bu(model_to_bu.get(model.lower(), brand_raw) if model_to_bu else brand_raw)
         inc(by_bu,          bu)
         inc(bu_brand[bu],   brand)
         inc(bu_medium[bu],  medium)
@@ -753,6 +764,11 @@ def main():
 
     # Load BU mapping and build aggregations
     model_to_bu = load_model_bu_mapping(REPO_ROOT)
+    print("Active nomenclature rules:")
+    if BRAND_ALIASES:
+        for src, tgt in BRAND_ALIASES.items(): print(f"  Brand  : '{src}' → '{tgt}'")
+    if BU_ALIASES:
+        for src, tgt in BU_ALIASES.items():    print(f"  BU     : '{src}' → '{tgt}'")
     print("Building aggregations...")
     dash = build_aggregations(all_rows, model_to_bu=model_to_bu)
     print(f"Total: {dash['total']:,} | Brands: {list(dash['by_brand'].keys())}")
