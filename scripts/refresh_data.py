@@ -409,6 +409,16 @@ def deduplicate(rows):
 
 # ── BU Mapping ────────────────────────────────────────────────────────────────
 
+# Canonical BU names — any key (case-insensitive) maps to the value
+BU_ALIASES = {
+    'pb-trm':  'TRM',
+    'triumph': 'TRM',
+}
+
+def normalize_bu(bu: str) -> str:
+    """Apply BU_ALIASES to consolidate variant BU names into canonical ones."""
+    return BU_ALIASES.get(bu.strip().lower(), bu)
+
 def load_model_bu_mapping(repo_root):
     """Load Model Name → BU mapping from Bajaj Mapping.xlsx in repo root.
     Returns dict: {model_name_lowercase: BU_string}
@@ -565,7 +575,7 @@ def build_aggregations(all_rows, model_to_bu=None):
         inc(model_month[model],   month)
 
         # BU aggregations — mapped models use the xlsx BU, all others fall back to brand
-        bu = model_to_bu.get(model.lower(), brand) if model_to_bu else brand
+        bu = normalize_bu(model_to_bu.get(model.lower(), brand) if model_to_bu else brand)
         inc(by_bu,          bu)
         inc(bu_brand[bu],   brand)
         inc(bu_medium[bu],  medium)
