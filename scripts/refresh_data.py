@@ -423,6 +423,7 @@ BU_ALIASES = {
     'pb-trm':  'TRM',
     'triumph': 'TRM',
     'ktm':     'PB',
+    'bajaj':   'MC',
 }
 
 def normalize_bu(bu: str) -> str:
