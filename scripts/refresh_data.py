@@ -466,6 +466,57 @@ def load_model_bu_mapping(repo_root):
         return {}
 
 
+OEM_DIST_FILE = "All Brand - All BU -OEM sales distribution.xlsx"
+
+def load_oem_data(repo_root):
+    """Load OEM city-level sales distribution from Classification sheet.
+    Returns nested dict: {BU: {city_lower: {p: priority_label, s: oem_share, city: original_name}}}
+    """
+    xlsx_path = os.path.join(repo_root, OEM_DIST_FILE)
+    if not os.path.exists(xlsx_path):
+        return {}
+    try:
+        wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
+        if "Classification" not in wb.sheetnames:
+            print(f"Warning: '{OEM_DIST_FILE}' has no 'Classification' sheet — skipping OEM data.")
+            wb.close()
+            return {}
+        ws = wb["Classification"]
+        rows = list(ws.iter_rows(values_only=True))
+        wb.close()
+        if not rows:
+            return {}
+        header = [str(c).strip() if c else "" for c in rows[0]]
+        # Expected columns: Brand, BU, City, Priority, OEM Sale Share
+        col = {h: i for i, h in enumerate(header)}
+        if not all(k in col for k in ("BU", "City", "Priority", "OEM Sale Share")):
+            print(f"Warning: Classification sheet missing expected columns (found: {header})")
+            return {}
+        result = {}
+        for row in rows[1:]:
+            if len(row) <= max(col.values()):
+                continue
+            bu  = str(row[col["BU"]]).strip() if row[col["BU"]] else ""
+            city= str(row[col["City"]]).strip() if row[col["City"]] else ""
+            pri = str(row[col["Priority"]]).strip() if row[col["Priority"]] else ""
+            try:
+                share = float(row[col["OEM Sale Share"]])
+            except (TypeError, ValueError):
+                continue
+            if not bu or not city:
+                continue
+            bu = normalize_bu(bu)        # apply BU aliases (e.g. PB-TRM → TRM)
+            if bu not in result:
+                result[bu] = {}
+            result[bu][city] = {"p": pri, "s": round(share, 6)}
+        total = sum(len(v) for v in result.values())
+        print(f"Loaded OEM distribution: {total} city records across BUs: {list(result.keys())}")
+        return result
+    except Exception as e:
+        print(f"Warning: Could not load OEM distribution data: {e}")
+        return {}
+
+
 # ── Aggregation ───────────────────────────────────────────────────────────────
 
 def norm_lt(raw):
@@ -773,6 +824,11 @@ def main():
     print("Building aggregations...")
     dash = build_aggregations(all_rows, model_to_bu=model_to_bu)
     print(f"Total: {dash['total']:,} | Brands: {list(dash['by_brand'].keys())}")
+
+    # Embed OEM city-level sales distribution
+    oem_data = load_oem_data(REPO_ROOT)
+    if oem_data:
+        dash["oem_data"] = oem_data
 
     # Stamp version + deployment timestamp (IST)
     new_version = manifest.get("version", 0) + 1
