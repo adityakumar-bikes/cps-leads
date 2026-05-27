@@ -413,6 +413,7 @@ def deduplicate(rows):
 BU_ALIASES = {
     'pb-trm':  'TRM',
     'triumph': 'TRM',
+    'ktm':     'PB',
 }
 
 def normalize_bu(bu: str) -> str:
