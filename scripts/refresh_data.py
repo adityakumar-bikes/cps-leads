@@ -470,7 +470,8 @@ OEM_DIST_FILE = "All Brand - All BU -OEM sales distribution.xlsx"
 
 def load_oem_data(repo_root):
     """Load OEM city-level sales distribution from Classification sheet.
-    Returns nested dict: {BU: {city_lower: {p: priority_label, s: oem_share, city: original_name}}}
+    Returns nested dict: {Brand: {BU: {city: {p: priority_label, s: oem_share}}}}
+    Brand aliases are applied so names match the dashboard (e.g. 'Bajaj' stays 'Bajaj').
     """
     xlsx_path = os.path.join(repo_root, OEM_DIST_FILE)
     if not os.path.exists(xlsx_path):
@@ -489,28 +490,35 @@ def load_oem_data(repo_root):
         header = [str(c).strip() if c else "" for c in rows[0]]
         # Expected columns: Brand, BU, City, Priority, OEM Sale Share
         col = {h: i for i, h in enumerate(header)}
-        if not all(k in col for k in ("BU", "City", "Priority", "OEM Sale Share")):
+        if not all(k in col for k in ("Brand", "BU", "City", "Priority", "OEM Sale Share")):
             print(f"Warning: Classification sheet missing expected columns (found: {header})")
             return {}
         result = {}
         for row in rows[1:]:
             if len(row) <= max(col.values()):
                 continue
-            bu  = str(row[col["BU"]]).strip() if row[col["BU"]] else ""
-            city= str(row[col["City"]]).strip() if row[col["City"]] else ""
-            pri = str(row[col["Priority"]]).strip() if row[col["Priority"]] else ""
+            raw_brand = str(row[col["Brand"]]).strip() if row[col["Brand"]] else ""
+            bu        = str(row[col["BU"]]).strip()    if row[col["BU"]]    else ""
+            city      = str(row[col["City"]]).strip()  if row[col["City"]]  else ""
+            pri       = str(row[col["Priority"]]).strip() if row[col["Priority"]] else ""
             try:
                 share = float(row[col["OEM Sale Share"]])
             except (TypeError, ValueError):
                 continue
-            if not bu or not city:
+            if not raw_brand or not bu or not city:
                 continue
-            bu = normalize_bu(bu)        # apply BU aliases (e.g. PB-TRM → TRM)
-            if bu not in result:
-                result[bu] = {}
-            result[bu][city] = {"p": pri, "s": round(share, 6)}
-        total = sum(len(v) for v in result.values())
-        print(f"Loaded OEM distribution: {total} city records across BUs: {list(result.keys())}")
+            # Apply same brand + BU aliases used in lead aggregation
+            brand = BRAND_NORMALIZE.get(raw_brand.lower(), raw_brand)
+            brand = BRAND_ALIASES.get(brand.lower(), brand)
+            bu    = normalize_bu(bu)
+            if brand not in result:
+                result[brand] = {}
+            if bu not in result[brand]:
+                result[brand][bu] = {}
+            result[brand][bu][city] = {"p": pri, "s": round(share, 6)}
+        total = sum(len(cities) for bus in result.values() for cities in bus.values())
+        summary = {b: list(bus.keys()) for b, bus in result.items()}
+        print(f"Loaded OEM distribution: {total} city records | {summary}")
         return result
     except Exception as e:
         print(f"Warning: Could not load OEM distribution data: {e}")
