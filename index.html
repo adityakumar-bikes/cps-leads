@@ -314,12 +314,17 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
   </div>
   <div class="cbox" style="margin-top:0">
     <div class="ctitle">All Flags</div>
-    <div class="srch-row" style="flex-wrap:wrap;gap:8px;margin-bottom:12px">
+    <div class="srch-row" style="flex-wrap:wrap;gap:8px;margin-bottom:8px">
       <select id="fl-state-f" onchange="_flStateChanged()" style="background:var(--card);color:var(--txt);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:.82rem;cursor:pointer;outline:none"><option value="">All States</option></select>
       <select id="fl-city-f" onchange="flPage=0;renderFlags()" style="background:var(--card);color:var(--txt);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:.82rem;cursor:pointer;outline:none"><option value="">All Cities</option></select>
+      <div style="position:relative;display:inline-block">
+        <button id="fl-excl-btn" onclick="_flExclOpenDropdown()" style="background:var(--card);border:1px solid var(--border);color:var(--muted);padding:6px 12px;border-radius:6px;font-size:.8rem;cursor:pointer;white-space:nowrap;outline:none">⊘ Exclude cities</button>
+        <div id="fl-excl-dd" style="display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:230px;max-height:300px;overflow-y:auto;background:var(--card);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);z-index:200"></div>
+      </div>
       <input class="srch" id="fl-srch" placeholder="Search dealer, city or brand…" oninput="flPage=0;renderFlags()" style="width:210px">
       <span class="pg-info" id="fl-pg-info" style="margin-left:auto;font-size:.78rem;color:var(--muted)"></span>
     </div>
+    <div id="fl-excl-tags" style="display:none;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:8px;min-height:0"></div>
     <div id="fl-cards"></div>
   </div>
 </div></div>
@@ -377,6 +382,8 @@ function msClose(id){
 }
 document.addEventListener('click',e=>{
   if(_msOpenId&&!e.target.closest('#ms-wrap-'+_msOpenId))msClose(_msOpenId);
+  const dd=document.getElementById('fl-excl-dd');
+  if(dd&&dd.style.display!=='none'&&!e.target.closest('#fl-excl-btn')&&!e.target.closest('#fl-excl-dd'))dd.style.display='none';
 },true);
 function msSetOptions(id,opts){
   _msAllOpts[id]=[...opts];_msCurOpts[id]=[...opts];msRender(id);
@@ -432,6 +439,49 @@ function mkChart(id,type,labels,datasets,opts){
 }
 let fBrand=[],fMedium=[],fMonth=[],fModel=[],fBU=[];
 let flPage=0;const FL_PG=50;
+let _flExclCities=new Set();
+function _flExclToggle(city){
+  if(_flExclCities.has(city))_flExclCities.delete(city);else _flExclCities.add(city);
+  _flExclRenderBtn();_flExclRenderTags();flPage=0;renderFlags();
+}
+function _flExclClear(){_flExclCities.clear();_flExclRenderBtn();_flExclRenderTags();flPage=0;renderFlags();}
+function _flExclRenderBtn(){
+  const btn=document.getElementById('fl-excl-btn');if(!btn)return;
+  const n=_flExclCities.size;
+  btn.textContent=n?`⊘ Exclude cities (${n})`:'⊘ Exclude cities';
+  btn.style.borderColor=n?'#e94560':'var(--border)';
+  btn.style.color=n?'#e94560':'var(--muted)';
+}
+function _flExclRenderTags(){
+  const wrap=document.getElementById('fl-excl-tags');if(!wrap)return;
+  if(!_flExclCities.size){wrap.style.display='none';wrap.innerHTML='';return;}
+  wrap.style.display='flex';
+  const cities=[..._flExclCities].sort();
+  wrap.innerHTML=`<span style="font-size:.72rem;color:var(--muted);align-self:center;margin-right:2px">Excluding:</span>`
+    +cities.map(c=>`<span style="background:#e9456020;color:#e94560;border:1px solid #e9456050;border-radius:10px;padding:2px 10px;font-size:.74rem;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:4px" onclick="_flExclToggle(${JSON.stringify(c)})">${c} <span style="font-size:.85rem;line-height:1;opacity:.7">×</span></span>`).join('')
+    +`<span style="font-size:.72rem;color:var(--muted);cursor:pointer;align-self:center;text-decoration:underline;margin-left:4px" onclick="_flExclClear()">clear all</span>`;
+}
+function _flExclOpenDropdown(){
+  const dd=document.getElementById('fl-excl-dd');if(!dd)return;
+  const isOpen=dd.style.display!=='none';
+  dd.style.display=isOpen?'none':'block';
+  if(!isOpen)_flExclPopulateDd();
+}
+function _flExclPopulateDd(){
+  const dd=document.getElementById('fl-excl-dd');if(!dd)return;
+  const flags=computeFlags()||[];
+  const stF=(document.getElementById('fl-state-f')?.value)||'';
+  const ctF=(document.getElementById('fl-city-f')?.value)||'';
+  const cities=[...new Set(flags.filter(f=>(!stF||f.state===stF)&&(!ctF||f.city===ctF)).map(f=>f.city))].sort();
+  let h=`<div style="font-size:.69rem;font-weight:700;color:var(--muted);padding:8px 12px 4px;text-transform:uppercase;letter-spacing:.5px">Exclude from list</div>`;
+  if(!cities.length){h+=`<div style="padding:8px 12px;font-size:.8rem;color:var(--muted)">No cities available</div>`;}
+  for(const c of cities){
+    const chk=_flExclCities.has(c);const esc=JSON.stringify(c);
+    h+=`<label style="display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;font-size:.82rem;color:var(--txt);${chk?'background:rgba(233,69,96,.08)':''}" onmouseover="this.style.background='rgba(255,255,255,.06)'" onmouseout="this.style.background='${chk?'rgba(233,69,96,.08)':'transparent'}'" onclick="event.preventDefault();_flExclToggle(${esc});_flExclPopulateDd()"><input type="checkbox" ${chk?'checked':''} style="accent-color:#e94560;width:13px;height:13px;flex-shrink:0;pointer-events:none"> ${c}</label>`;
+  }
+  if(_flExclCities.size)h+=`<div style="padding:6px 12px 8px;border-top:1px solid var(--border);margin-top:2px"><button onclick="_flExclClear();_flExclPopulateDd()" style="font-size:.74rem;color:#e94560;background:none;border:none;cursor:pointer;padding:0">Clear all exclusions</button></div>`;
+  dd.innerHTML=h;
+}
 window.addEventListener('DOMContentLoaded',()=>{
   msSetOptions('brand',D.brands_all);
   msSetOptions('medium',D.mediums_all);
@@ -1370,6 +1420,7 @@ function renderFlags(){
   const filtered=flags.filter(f=>{
     if(stF2&&f.state!==stF2)return false;
     if(ctF&&f.city!==ctF)return false;
+    if(_flExclCities.size&&_flExclCities.has(f.city))return false;
     if(srch&&!f.entity.toLowerCase().includes(srch)&&!f.city.toLowerCase().includes(srch)&&!f.brand.toLowerCase().includes(srch))return false;
     return true;
   });
