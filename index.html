@@ -673,7 +673,9 @@ function renderLeadType(){
   const mShow=_hasF(fMedium)?fMedium:D.mediums_all;
   mkChart('ch-lt2','bar',ltE.map(e=>e[0]),[{data:ltE.map(e=>e[1]),backgroundColor:col(ltE.map(e=>e[0]),LTCOL,'#6C63FF'),borderRadius:4}],hBarOpts());
   mkChart('ch-lt-med','bar',ltE.map(e=>e[0]),mShow.map(m=>{return{label:m,data:ltE.map(([lt])=>ltMedFiltered(lt,m)),backgroundColor:MCOL[m]||'#8b949e'}}),stackedOpts());
+  const medSubsLt=Object.fromEntries(D.mediums_all.map(m=>[m,ltE.reduce((s,[lt])=>s+ltMedFiltered(lt,m),0)]));
   let html=`<table class="tbl"><thead><tr><th>#</th><th>Lead Type</th><th>Total</th><th>Share</th>${D.mediums_all.map(m=>`<th>${m}</th>`).join('')}</tr></thead><tbody>`;
+  html+=`<tr style="background:rgba(108,99,255,.1);font-weight:700;border-bottom:2px solid var(--border)"><td style="color:var(--muted)">∑</td><td>Subtotal</td><td class="num">${fmtN(total)}</td><td style="color:var(--muted)">${ltE.length} types</td>${D.mediums_all.map(m=>`<td class="num">${fmtN(medSubsLt[m])}</td>`).join('')}</tr>`;
   ltE.forEach(([lt,cnt],i)=>{const bw=total?Math.round(cnt/total*100):0;html+=`<tr><td style="color:var(--muted)">${i+1}</td><td><strong>${lt}</strong></td><td class="num">${fmtN(cnt)}</td><td><div>${pct(cnt,total)}</div><div class="bar" style="width:${bw}%;background:${LTCOL[lt]||'var(--hl)'}"></div></td>${D.mediums_all.map(m=>`<td class="num">${fmtN(ltMedFiltered(lt,m))}</td>`).join('')}</tr>`;
   });html+='</tbody></table>';document.getElementById('tbl-lt-wrap').innerHTML=html;
 }
@@ -702,10 +704,26 @@ function geoSortRows(rows,sort,nameIdx,numIdx,medIdx,stateIdx){
     return d*((a[medIdx][sort.col]||0)-(b[medIdx][sort.col]||0));
   });
 }
+function _applyMonthScale(counts,monthLookup,rawTotals){
+  if(!_hasF(fMonth))return counts;
+  const out={};
+  for(const[k,v]of Object.entries(counts)){
+    const rawTotal=rawTotals[k]||1;
+    const moScale=_sumKeys(monthLookup?.[k]||{},fMonth)/rawTotal;
+    const sv=Math.round(v*moScale);
+    if(sv>0)out[k]=sv;
+  }
+  return out;
+}
 function renderStateTable(){
   const q=(document.getElementById('st-srch')?.value||'').toLowerCase();
-  const stC=filteredDimCounts(D.by_state,D.state_brand,D.state_medium,D.bu_state);
-  let rows=Object.entries(stC).map(([n,cnt])=>[n,cnt,D.state_medium[n]||{}]).filter(([n])=>!q||n.toLowerCase().includes(q));
+  let stC=filteredDimCounts(D.by_state,D.state_brand,D.state_medium,D.bu_state);
+  stC=_applyMonthScale(stC,D.state_month,D.by_state);
+  let rows=Object.entries(stC).map(([n,cnt])=>{
+    const scale=cnt/(D.by_state[n]||1);
+    const src=Object.fromEntries(D.mediums_all.map(m=>[m,Math.round((D.state_medium[n]?.[m]||0)*scale)]));
+    return[n,cnt,src];
+  }).filter(([n])=>!q||n.toLowerCase().includes(q));
   rows=geoSortRows(rows,stSort,0,1,2,null);
   const total=Object.values(stC).reduce((a,c)=>a+c,0)||1;
   const subTotal=rows.reduce((a,[,c])=>a+c,0);
@@ -722,8 +740,13 @@ let ctCurPage=0;const CT_PG=100;
 function ctPage(d){ctCurPage+=d;renderCityTable();}
 function renderCityTable(){
   const q=(document.getElementById('ct-srch')?.value||'').toLowerCase();
-  const ctC=filteredDimCounts(D.by_city,D.city_brand,D.city_medium,D.bu_city);
-  let rows=Object.entries(ctC).map(([n,cnt])=>[n,cnt,D.city_medium[n]||{},D.city_state?.[n]||'']).filter(([n,,,st])=>!q||n.toLowerCase().includes(q)||st.toLowerCase().includes(q));
+  let ctC=filteredDimCounts(D.by_city,D.city_brand,D.city_medium,D.bu_city);
+  ctC=_applyMonthScale(ctC,D.city_month,D.by_city);
+  let rows=Object.entries(ctC).map(([n,cnt])=>{
+    const scale=cnt/(D.by_city[n]||1);
+    const src=Object.fromEntries(D.mediums_all.map(m=>[m,Math.round((D.city_medium[n]?.[m]||0)*scale)]));
+    return[n,cnt,src,D.city_state?.[n]||''];
+  }).filter(([n,,,st])=>!q||n.toLowerCase().includes(q)||st.toLowerCase().includes(q));
   rows=geoSortRows(rows,ctSort,0,1,2,3);
   if(q)ctCurPage=0;
   const start=ctCurPage*CT_PG,end=Math.min(start+CT_PG,rows.length);
