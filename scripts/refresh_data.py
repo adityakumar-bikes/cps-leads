@@ -400,39 +400,55 @@ def parse_zip_rows(zip_buf, file_name):
 
 def deduplicate(rows):
     """
-    Two-level dedup:
-      1. Primary key  = opty_id alone (when non-empty) — globally unique per lead.
-      2. Fallback key = (brand, encrypt_mobile_number, Lead_Month) — used when
-         opty_id is absent in one copy but present in another (stale-cache edge case).
-    A row is dropped if EITHER of its applicable keys was already seen.
+    Two-pass dedup:
+
+    Pass 1 — rows WITH opty_id: deduplicated by opty_id alone.
+      Trusts the CRM's globally-unique lead identifier. Two rows with different
+      opty_ids are always treated as distinct leads (e.g. the same customer
+      submitting two enquiries in the same month is legitimate and both are kept).
+      Also records the (brand, mobile, month) combo for every opty-tracked row.
+
+    Pass 2 — rows WITHOUT opty_id: deduplicated by (brand, mobile, month) combo.
+      Any combo already covered by an opty row (from Pass 1) is dropped — this
+      handles the stale-cache edge case where the same lead existed in the old
+      cache with an empty opty_id and was re-downloaded with a filled opty_id.
+      Within this pass, duplicate combos are also collapsed.
     """
-    seen_opty  = set()   # non-empty opty_ids already kept
-    seen_combo = set()   # (brand, mob, month) combos already kept
-    out = []
+    # ── Pass 1: opty rows ────────────────────────────────────────────────────
+    seen_opty   = set()
+    opty_combos = set()   # combos already covered by an opty row
+    opty_out    = []
     for r in rows:
-        opty  = r.get("opty_id") or ""
-        brand = r.get("brand")   or ""
+        opty = r.get("opty_id") or ""
+        if not opty:
+            continue
+        if opty in seen_opty:
+            continue
+        seen_opty.add(opty)
+        mob = r.get("encrypt_mobile_number") or ""
+        if mob:
+            opty_combos.add((r.get("brand") or "", mob, r.get("Lead_Month") or ""))
+        opty_out.append(r)
+
+    # ── Pass 2: no-opty rows ─────────────────────────────────────────────────
+    seen_nopty = set()
+    nopty_out  = []
+    for r in rows:
+        if r.get("opty_id"):
+            continue
         mob   = r.get("encrypt_mobile_number") or ""
+        brand = r.get("brand")     or ""
         month = r.get("Lead_Month") or ""
-        combo = (brand, mob, month)
+        if mob:
+            combo = (brand, mob, month)
+            if combo in opty_combos:
+                continue   # covered by an opty row — drop the no-opty duplicate
+            if combo in seen_nopty:
+                continue
+            seen_nopty.add(combo)
+        nopty_out.append(r)
 
-        if opty:
-            if opty in seen_opty:
-                continue
-            # Also skip if the same combo was kept without an opty_id
-            if mob and combo in seen_combo:
-                continue
-            seen_opty.add(opty)
-            if mob:
-                seen_combo.add(combo)
-        elif brand or mob or month:
-            if mob and combo in seen_combo:
-                continue
-            if mob:
-                seen_combo.add(combo)
-
-        out.append(r)
-    return out
+    return opty_out + nopty_out
 
 
 # ── BU Mapping ────────────────────────────────────────────────────────────────
