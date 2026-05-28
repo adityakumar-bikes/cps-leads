@@ -399,19 +399,38 @@ def parse_zip_rows(zip_buf, file_name):
 # ── Deduplication ─────────────────────────────────────────────────────────────
 
 def deduplicate(rows):
-    seen = set()
+    """
+    Two-level dedup:
+      1. Primary key  = opty_id alone (when non-empty) — globally unique per lead.
+      2. Fallback key = (brand, encrypt_mobile_number, Lead_Month) — used when
+         opty_id is absent in one copy but present in another (stale-cache edge case).
+    A row is dropped if EITHER of its applicable keys was already seen.
+    """
+    seen_opty  = set()   # non-empty opty_ids already kept
+    seen_combo = set()   # (brand, mob, month) combos already kept
     out = []
     for r in rows:
-        key = (
-            r.get("brand")                  or "",
-            r.get("encrypt_mobile_number")  or "",
-            r.get("Lead_Month")             or "",
-            r.get("opty_id")                or "",
-        )
-        if any(key):
-            if key in seen:
+        opty  = r.get("opty_id") or ""
+        brand = r.get("brand")   or ""
+        mob   = r.get("encrypt_mobile_number") or ""
+        month = r.get("Lead_Month") or ""
+        combo = (brand, mob, month)
+
+        if opty:
+            if opty in seen_opty:
                 continue
-            seen.add(key)
+            # Also skip if the same combo was kept without an opty_id
+            if mob and combo in seen_combo:
+                continue
+            seen_opty.add(opty)
+            if mob:
+                seen_combo.add(combo)
+        elif brand or mob or month:
+            if mob and combo in seen_combo:
+                continue
+            if mob:
+                seen_combo.add(combo)
+
         out.append(r)
     return out
 
