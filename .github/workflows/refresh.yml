@@ -4,9 +4,9 @@ on:
   # ── Manual trigger (the "Refresh" button calls this) ──────────────────────
   workflow_dispatch:
 
-  # ── Automatic: runs every day at 6:00 AM IST (00:30 UTC) ─────────────────
+  # ── Automatic: runs every day at 2:15 PM IST (08:45 UTC) ────────────────
   schedule:
-    - cron: "30 0 * * *"
+    - cron: "45 8 * * *"
 
 permissions:
   contents: write   # needed to commit updated data files back to the repo
