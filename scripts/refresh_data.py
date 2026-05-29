@@ -465,6 +465,33 @@ def normalize_bu(bu: str) -> str:
     """Apply BU_ALIASES to consolidate variant BU names into canonical ones."""
     return BU_ALIASES.get(bu.strip().lower(), bu)
 
+# City name normalization — merges alternate spellings into one canonical form
+CITY_NORMALIZE = {
+    "bengaluru": "Bangalore",
+    "bangalore": "Bangalore",
+    "gurugram":  "Gurgaon",
+    "gurgaon":   "Gurgaon",
+}
+
+# State name normalization
+STATE_NORMALIZE = {
+    "orissa":  "Odisha",
+    "orrisa":  "Odisha",
+    "odisha":  "Odisha",
+}
+
+def normalize_city(city: str) -> str:
+    """Normalize city name to canonical form (e.g. Bengaluru → Bangalore)."""
+    if not city:
+        return city
+    return CITY_NORMALIZE.get(city.strip().lower(), city.strip())
+
+def normalize_state(state: str) -> str:
+    """Normalize state name to canonical form (e.g. Orissa → Odisha)."""
+    if not state:
+        return state
+    return STATE_NORMALIZE.get(state.strip().lower(), state.strip())
+
 def load_model_bu_mapping(repo_root):
     """Load Model Name → BU mapping from Bajaj Mapping.xlsx in repo root.
     Returns dict: {model_name_lowercase: BU_string}
@@ -534,7 +561,7 @@ def load_oem_data(repo_root):
                 continue
             raw_brand = str(row[col["Brand"]]).strip() if row[col["Brand"]] else ""
             bu        = str(row[col["BU"]]).strip()    if row[col["BU"]]    else ""
-            city      = str(row[col["City"]]).strip()  if row[col["City"]]  else ""
+            city      = normalize_city(str(row[col["City"]]).strip() if row[col["City"]] else "")
             pri       = str(row[col["Priority"]]).strip() if row[col["Priority"]] else ""
             try:
                 share = float(row[col["OEM Sale Share"]])
@@ -629,11 +656,11 @@ def build_aggregations(all_rows, model_to_bu=None):
         brand_raw = brand                                       # pre-alias brand for BU fallback
         brand   = BRAND_ALIASES.get(brand.lower(), brand)     # idempotent — stored rows already aliased
         medium  = str(r.get("Medium", "") or "").strip() or "Unknown"
-        state   = str(r.get("State",  "") or "").strip() or "Unknown"
-        city    = str(r.get("City",   "") or "").strip() or "Unknown"
+        state   = normalize_state(str(r.get("State",  "") or "").strip()) or "Unknown"
+        city    = normalize_city(str(r.get("City",   "") or "").strip()) or "Unknown"
         crm_id  = str(r.get("oem_crm_id","") or "").strip()
-        d_city  = str(r.get("City","")       or "").strip()
-        d_state = str(r.get("State","")      or "").strip()
+        d_city  = normalize_city(str(r.get("City","")  or "").strip())
+        d_state = normalize_state(str(r.get("State","") or "").strip())
         dealer  = f"{crm_id} · {d_city}, {d_state}" if crm_id else "Unknown"
         if dealer != "Unknown":
             d_code = str(r.get("verified_dealer","") or "").strip()
