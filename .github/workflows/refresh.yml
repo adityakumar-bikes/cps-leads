@@ -5,8 +5,11 @@ on:
   workflow_dispatch:
 
   # ── Automatic: runs every day at 2:15 PM IST (08:45 UTC) ────────────────
+  #    On the 1st of every month an extra run fires at 8:45 PM IST (15:15 UTC)
+  #    to catch new-month files created after the afternoon run.
   schedule:
-    - cron: "45 8 * * *"
+    - cron: "45 8 * * *"       # 2:15 PM IST — daily
+    - cron: "15 15 1 * *"      # 8:45 PM IST — 1st of month only
 
 permissions:
   contents: write   # needed to commit updated data files back to the repo

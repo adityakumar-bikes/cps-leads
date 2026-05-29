@@ -801,6 +801,14 @@ def main():
             manifest = json.load(f)
         manifest.setdefault("version", 0)
 
+    # On the 1st of every month: force a full re-download so the renamed
+    # old-month file (e.g. "May'26") and the newly created current-month
+    # file are both picked up with fresh, complete data.
+    now_ist = datetime.now(IST)
+    if now_ist.day == 1:
+        print(f"📅 1st of month ({now_ist.strftime('%b %Y')}) — clearing manifest.processed to force full refresh.")
+        manifest["processed"] = {}
+
     # Load existing leads (gzip-compressed to keep repo size manageable)
     all_rows = []
     if os.path.exists(LEADS_F):
