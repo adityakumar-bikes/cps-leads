@@ -647,8 +647,22 @@ def build_aggregations(all_rows, model_to_bu=None):
     model_bu_map = {}   # model (canonical case) → BU string
     dealer_code_map = {}  # dealer_key → verified_dealer code
     dealer_name_map = {}  # dealer_key → Dealer_Name
+    brand_date_min = {}   # brand → earliest lead date (datetime)
+    brand_date_max = {}   # brand → latest lead date (datetime)
 
     months_seen = set()
+
+    def parse_lead_date(raw):
+        """Parse date string in either yyyy-mm-dd or yyyy-Mon-dd format."""
+        if not raw:
+            return None
+        raw = raw.strip()
+        for fmt in ('%Y-%m-%d', '%Y-%b-%d'):
+            try:
+                return datetime.strptime(raw, fmt)
+            except ValueError:
+                pass
+        return None
 
     for r in all_rows:
         brand   = str(r.get("brand",  "") or "").strip()
@@ -680,6 +694,14 @@ def build_aggregations(all_rows, model_to_bu=None):
 
         brands_set.add(brand)
         months_seen.add(month)
+
+        # Track min/max lead date per brand
+        lead_dt = parse_lead_date(r.get("Date", ""))
+        if lead_dt:
+            if brand not in brand_date_min or lead_dt < brand_date_min[brand]:
+                brand_date_min[brand] = lead_dt
+            if brand not in brand_date_max or lead_dt > brand_date_max[brand]:
+                brand_date_max[brand] = lead_dt
 
         inc(by_brand,  brand);  inc(by_medium, medium)
         inc(by_state,  state);  inc(by_city,   city)
@@ -785,6 +807,13 @@ def build_aggregations(all_rows, model_to_bu=None):
         "city_month":    {k: {m: v.get(m,0) for m in months_present} for k,v in city_month.items()},
         "model_month":   {k: {m: v.get(m,0) for m in months_present} for k,v in model_month.items()},
         "last_updated":  datetime.now(timezone.utc).strftime("%d %b %Y, %H:%M UTC"),
+        "brand_date_range": {
+            b: {
+                "min": brand_date_min[b].strftime("%m/%d/%Y"),
+                "max": brand_date_max[b].strftime("%m/%d/%Y"),
+            }
+            for b in brands_set if b in brand_date_min
+        },
         # version and deployed_at are injected by main() after this returns
     }
 
