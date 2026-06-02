@@ -58,7 +58,7 @@ SKIP_SHEETS = {
 VALID_BRANDS = {
     "ather", "bgauss", "ampere electric", "ampere", "vespa", "aprilia", "piaggio",
     "ola electric", "ola", "bajaj", "bajaj chetak", "ktm", "triumph",
-    "husqvarna motorcycles", "husqvarna",
+    "husqvarna motorcycles", "husqvarna", "tvs",
 }
 
 # Normalize short brand names → canonical display names (for consistent aggregation)
