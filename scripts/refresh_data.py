@@ -58,7 +58,7 @@ SKIP_SHEETS = {
 VALID_BRANDS = {
     "ather", "bgauss", "ampere electric", "ampere", "vespa", "aprilia", "piaggio",
     "ola electric", "ola", "bajaj", "bajaj chetak", "ktm", "triumph",
-    "husqvarna motorcycles", "husqvarna", "tvs",
+    "husqvarna motorcycles", "husqvarna", "tvs", "jawa", "yezdi", "bsa",
 }
 
 # Normalize short brand names → canonical display names (for consistent aggregation)
@@ -69,6 +69,9 @@ BRAND_NORMALIZE = {
     "ola electric": "Ola Electric",
     "bajaj chetak": "Bajaj",
     "husqvarna": "Husqvarna Motorcycles",
+    "jawa": "Jawa",
+    "yezdi": "Jawa",
+    "bsa": "Jawa",
 }
 
 # Merge sub-brands into parent brand (applied AFTER BU is computed so BU is unaffected)
