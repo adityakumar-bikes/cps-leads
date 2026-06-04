@@ -639,6 +639,7 @@ def build_aggregations(all_rows, model_to_bu=None):
     lt_month = defaultdict(dict); model_brand = defaultdict(dict)
     state_month  = defaultdict(dict); city_month  = defaultdict(dict)
     model_month  = defaultdict(dict)
+    brand_medium_month = defaultdict(lambda: defaultdict(dict))  # brand → medium → month → count
 
     # BU counters
     by_bu = {}
@@ -713,6 +714,7 @@ def build_aggregations(all_rows, model_to_bu=None):
 
         inc(brand_month[brand],   month)
         inc(brand_medium[brand],  medium)
+        inc(brand_medium_month[brand][medium], month)
         inc(brand_lt[brand],      lt)
         inc(brand_model[brand],   model)
         inc(state_brand[state],   brand)
@@ -773,6 +775,9 @@ def build_aggregations(all_rows, model_to_bu=None):
         "by_dealer":     srt(by_dealer),
         "by_lt":         srt(by_lt),
         "brand_month":   {k: {m: v.get(m,0) for m in months_present} for k,v in brand_month.items()},
+        "brand_medium_month": {b: {med: {m: v.get(m,0) for m in months_present}
+                               for med, v in meds.items()}
+                               for b, meds in brand_medium_month.items()},
         "brand_medium":  dict(brand_medium),
         "brand_lt":      dict(brand_lt),
         "brand_model":   dict(brand_model),
