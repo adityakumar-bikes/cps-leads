@@ -108,6 +108,16 @@ def is_brand_sheet(sheet_label: str) -> bool:
         if len(first_word) >= 4 and first_word in sl:
             return True
 
+    # Accept Bajaj sub-brand / BU sheet names that don't match brand strings directly
+    # e.g. sheets named "Chetak", "UB", "MC", "PB", "TRM", "CV", "KTM" etc.
+    BAJAJ_SHEET_ALIASES = {
+        "chetak", "ub", "mc", "pb", "trm", "cv",
+        "urban bike", "urban bikes", "motorcycle", "motorcycles",
+        "commercial vehicle", "commercial vehicles", "probiking",
+    }
+    if sl in BAJAJ_SHEET_ALIASES or any(a in sl for a in BAJAJ_SHEET_ALIASES):
+        return True
+
     # Accept plain month sheets: "apr'25", "feb'26", "jan 2026", etc.
     import re as _re
     if _re.search(r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)", sl):
