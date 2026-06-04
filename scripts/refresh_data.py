@@ -647,7 +647,8 @@ def build_aggregations(all_rows, model_to_bu=None):
     bu_month  = defaultdict(dict); bu_state  = defaultdict(dict)
     bu_city   = defaultdict(dict); bu_dealer = defaultdict(dict)
     bu_lt     = defaultdict(dict); bu_model  = defaultdict(dict)
-    bu_city_month = defaultdict(lambda: defaultdict(dict))  # bu → city → month → count
+    bu_city_month = defaultdict(lambda: defaultdict(dict))   # bu → city → month → count
+    bu_medium_month = defaultdict(lambda: defaultdict(dict)) # bu → medium → month → count
     model_bu_map = {}   # model (canonical case) → BU string
     dealer_code_map = {}  # dealer_key → verified_dealer code
     dealer_name_map = {}  # dealer_key → Dealer_Name
@@ -742,6 +743,7 @@ def build_aggregations(all_rows, model_to_bu=None):
         inc(bu_brand[bu],   brand)
         inc(bu_medium[bu],  medium)
         inc(bu_month[bu],   month)
+        inc(bu_medium_month[bu][medium], month)
         inc(bu_state[bu],   state)
         inc(bu_city[bu],    city)
         if city and month: inc(bu_city_month[bu][city], month)
@@ -800,6 +802,9 @@ def build_aggregations(all_rows, model_to_bu=None):
         "bu_brand":      dict(bu_brand),
         "bu_medium":     dict(bu_medium),
         "bu_month":      {k: {m: v.get(m,0) for m in months_present} for k,v in bu_month.items()},
+        "bu_medium_month": {bu: {med: {m: v.get(m,0) for m in months_present}
+                            for med, v in meds.items()}
+                            for bu, meds in bu_medium_month.items()},
         "bu_state":      dict(bu_state),
         "bu_city":       dict(bu_city),
         "bu_city_month": {bu: {city: {m: v.get(m,0) for m in months_present}
