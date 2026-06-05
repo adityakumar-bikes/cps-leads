@@ -240,6 +240,7 @@ def export_via_sheets_api(sheets_svc, file_id, file_name):
     Read all brand-data sheets from a Spreadsheet using the Sheets API v4.
     Used as a fallback when the Drive ZIP export fails with exportSizeLimitExceeded.
     Returns list of row dicts with COLS keys, same as parse_zip_rows().
+    Each row is tagged with _file_id so stale rows can be purged on re-processing.
     """
     rows = []
     cols_lower = {c.lower(): c for c in COLS}
@@ -325,6 +326,7 @@ def export_via_sheets_api(sheets_svc, file_id, file_name):
             # Normalize brand name in stored row (BRAND_NORMALIZE then BRAND_ALIASES)
             b = BRAND_NORMALIZE.get(row["brand"].lower(), row["brand"])
             row["brand"] = BRAND_ALIASES.get(b.lower(), b)
+            row["_file_id"] = file_id
             rows.append(row)
             sheet_rows += 1
 
@@ -336,12 +338,13 @@ def export_via_sheets_api(sheets_svc, file_id, file_name):
 
 # ── Parsing ──────────────────────────────────────────────────────────────────
 
-def parse_zip_rows(zip_buf, file_name):
+def parse_zip_rows(zip_buf, file_name, file_id=None):
     """
     Open a ZIP of CSVs exported from Google Sheets.
     Only process sheets whose name matches a brand name or month label.
     Skips all summary/pivot sheets (Filter, City Wise, LT Wise, etc.).
     Return list of row dicts with COLS keys, filtered to VALID_BRANDS.
+    Each row is tagged with _file_id so stale rows can be purged on re-processing.
     """
     rows = []
     cols_lower = {c.lower(): c for c in COLS}
@@ -400,6 +403,8 @@ def parse_zip_rows(zip_buf, file_name):
                 # Normalize brand name (BRAND_NORMALIZE then BRAND_ALIASES)
                 b = BRAND_NORMALIZE.get(row["brand"].lower(), row["brand"])
                 row["brand"] = BRAND_ALIASES.get(b.lower(), b)
+                if file_id:
+                    row["_file_id"] = file_id
                 rows.append(row)
                 sheet_rows += 1
 
@@ -895,7 +900,7 @@ def main():
         print(f"  ↓ processing: {name}  (modified {mtime[:10]})")
         try:
             zip_buf = export_as_zip(drive_svc, fid)
-            new_rows = parse_zip_rows(zip_buf, name)
+            new_rows = parse_zip_rows(zip_buf, name, file_id=fid)
         except FileTooLargeError:
             print(f"    File too large for ZIP export — using Sheets API v4 fallback…")
             try:
@@ -912,10 +917,14 @@ def main():
             manifest["processed"][fid] = {"name": name, "modifiedTime": mtime, "rows": 0}
             continue
 
-        # Remove any previously-stored rows from this file (handles re-processing)
+        # Purge any previously-stored rows from this file before appending fresh ones.
+        # This prevents stale rows from accumulating when a Drive file is updated.
         if fid in manifest["processed"] and manifest["processed"][fid].get("rows", 0) > 0:
-            # Can't easily surgically remove by file — re-dedup handles it
-            pass
+            before = len(all_rows)
+            all_rows = [r for r in all_rows if r.get("_file_id") != fid]
+            purged = before - len(all_rows)
+            if purged:
+                print(f"    purged {purged:,} stale rows from previous version of this file")
 
         all_rows.extend(new_rows)
         manifest["processed"][fid] = {
