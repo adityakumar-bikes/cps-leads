@@ -655,6 +655,7 @@ def build_aggregations(all_rows, model_to_bu=None):
     state_month  = defaultdict(dict); city_month  = defaultdict(dict)
     model_month  = defaultdict(dict)
     brand_medium_month = defaultdict(lambda: defaultdict(dict))  # brand → medium → month → count
+    state_medium_month = defaultdict(lambda: defaultdict(dict))  # state → medium → month → count
     # Exact cross-sections for zero-approximation filtering in the dashboard
     state_brand_month = defaultdict(lambda: defaultdict(dict))   # state → brand → month → count
     city_brand_month  = defaultdict(lambda: defaultdict(dict))   # city  → brand → month → count
@@ -739,6 +740,7 @@ def build_aggregations(all_rows, model_to_bu=None):
         inc(brand_model[brand],   model)
         inc(state_brand[state],   brand)
         inc(state_medium[state],  medium)
+        inc(state_medium_month[state][medium], month)
         inc(state_lt[state],      lt)
         inc(city_brand[city],     brand)
         inc(city_medium[city],    medium)
@@ -807,6 +809,7 @@ def build_aggregations(all_rows, model_to_bu=None):
         "brand_model":   dict(brand_model),
         "state_brand":   dict(state_brand),
         "state_medium":  dict(state_medium),
+        "state_medium_month": {s: {med: {m: v.get(m,0) for m in months_present} for med,v in mm.items()} for s,mm in state_medium_month.items()},
         "state_lt":      dict(state_lt),
         "city_brand":    dict(city_brand),
         "city_medium":   dict(city_medium),
