@@ -655,6 +655,10 @@ def build_aggregations(all_rows, model_to_bu=None):
     state_month  = defaultdict(dict); city_month  = defaultdict(dict)
     model_month  = defaultdict(dict)
     brand_medium_month = defaultdict(lambda: defaultdict(dict))  # brand → medium → month → count
+    # Exact cross-sections for zero-approximation filtering in the dashboard
+    state_brand_month = defaultdict(lambda: defaultdict(dict))   # state → brand → month → count
+    city_brand_month  = defaultdict(lambda: defaultdict(dict))   # city  → brand → month → count
+    state_bu_month    = defaultdict(lambda: defaultdict(dict))   # state → bu    → month → count
 
     # BU counters
     by_bu = {}
@@ -751,6 +755,8 @@ def build_aggregations(all_rows, model_to_bu=None):
         inc(state_month[state],   month)
         inc(city_month[city],     month)
         inc(model_month[model],   month)
+        inc(state_brand_month[state][brand], month)
+        inc(city_brand_month[city][brand],   month)
 
         # BU aggregations — mapped models use the xlsx BU, all others fall back to pre-alias brand
         bu = normalize_bu(model_to_bu.get(model.lower(), brand_raw) if model_to_bu else brand_raw)
@@ -762,6 +768,7 @@ def build_aggregations(all_rows, model_to_bu=None):
         inc(bu_state[bu],   state)
         inc(bu_city[bu],    city)
         if city and month: inc(bu_city_month[bu][city], month)
+        inc(state_bu_month[state][bu], month)
         inc(bu_dealer[bu],  dealer)
         inc(bu_lt[bu],      lt)
         inc(bu_model[bu],   model)
@@ -833,6 +840,15 @@ def build_aggregations(all_rows, model_to_bu=None):
         "dealer_name":   dealer_name_map,
         "state_month":   {k: {m: v.get(m,0) for m in months_present} for k,v in state_month.items()},
         "city_month":    {k: {m: v.get(m,0) for m in months_present} for k,v in city_month.items()},
+        "state_brand_month": {s: {b: {m: v.get(m,0) for m in months_present}
+                               for b,v in bm.items()}
+                               for s,bm in state_brand_month.items()},
+        "city_brand_month":  {c: {b: {m: v.get(m,0) for m in months_present}
+                               for b,v in bm.items()}
+                               for c,bm in city_brand_month.items()},
+        "state_bu_month":    {s: {bu: {m: v.get(m,0) for m in months_present}
+                               for bu,v in bm.items()}
+                               for s,bm in state_bu_month.items()},
         "model_month":   {k: {m: v.get(m,0) for m in months_present} for k,v in model_month.items()},
         "last_updated":  datetime.now(timezone.utc).strftime("%d %b %Y, %H:%M UTC"),
         "brand_date_range": {
