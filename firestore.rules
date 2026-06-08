@@ -1,0 +1,18 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /cps_users/{uid} {
+      // Users can read their own doc
+      allow read: if request.auth != null && request.auth.uid == uid;
+      // Users can create their own doc (first login)
+      allow create: if request.auth != null && request.auth.uid == uid;
+      // Users can update their own lastLogin only
+      allow update: if request.auth != null && request.auth.uid == uid
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                       .hasOnly(['lastLogin','photoURL','displayName']);
+      // Admins can read/write all user docs
+      allow read, write: if request.auth != null
+                         && get(/databases/$(database)/documents/cps_users/$(request.auth.uid)).data.isAdmin == true;
+    }
+  }
+}
