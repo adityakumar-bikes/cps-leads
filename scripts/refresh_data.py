@@ -605,6 +605,50 @@ def load_oem_data(repo_root):
         return {}
 
 
+def load_ims_data(repo_root):
+    """Load IMS state mapping from 'Classification IMS' sheet.
+    Returns: { brand: { state: "Y" | "N" } }
+    """
+    xlsx_path = os.path.join(repo_root, OEM_DIST_FILE)
+    if not os.path.exists(xlsx_path):
+        return {}
+    try:
+        wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
+        if "Classification IMS" not in wb.sheetnames:
+            wb.close()
+            return {}
+        ws = wb["Classification IMS"]
+        rows = list(ws.iter_rows(values_only=True))
+        wb.close()
+        if not rows:
+            return {}
+        header = [str(c).strip() if c else "" for c in rows[0]]
+        col = {h: i for i, h in enumerate(header)}
+        if not all(k in col for k in ("Brand", "State", "IMS State")):
+            print(f"Warning: Classification IMS sheet missing expected columns (found: {header})")
+            return {}
+        result = {}
+        for row in rows[1:]:
+            if len(row) <= max(col.values()):
+                continue
+            raw_brand = str(row[col["Brand"]]).strip() if row[col["Brand"]] else ""
+            state     = str(row[col["State"]]).strip()      if row[col["State"]]      else ""
+            ims       = str(row[col["IMS State"]]).strip().upper() if row[col["IMS State"]] else ""
+            if not raw_brand or not state or ims not in ("Y", "N"):
+                continue
+            brand = BRAND_NORMALIZE.get(raw_brand.lower(), raw_brand)
+            brand = BRAND_ALIASES.get(brand.lower(), brand)
+            if brand not in result:
+                result[brand] = {}
+            result[brand][state] = ims
+        brands_mapped = {b: sum(1 for v in sv.values() if v == "Y") for b, sv in result.items()}
+        print(f"Loaded IMS mapping: {brands_mapped}")
+        return result
+    except Exception as e:
+        print(f"Warning: Could not load IMS data: {e}")
+        return {}
+
+
 # ── Aggregation ───────────────────────────────────────────────────────────────
 
 def norm_lt(raw):
@@ -992,6 +1036,9 @@ def main():
     oem_data = load_oem_data(REPO_ROOT)
     if oem_data:
         dash["oem_data"] = oem_data
+    ims_data = load_ims_data(REPO_ROOT)
+    if ims_data:
+        dash["ims_mapping"] = ims_data
 
     # Stamp version + deployment timestamp (IST)
     new_version = manifest.get("version", 0) + 1
