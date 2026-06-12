@@ -661,7 +661,7 @@ def norm_lt(raw):
     return v if v else "Unknown"
 
 
-def build_aggregations(all_rows, model_to_bu=None):
+def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
     # Canonical model names
     model_cases = defaultdict(Counter)
     for r in all_rows:
@@ -713,7 +713,15 @@ def build_aggregations(all_rows, model_to_bu=None):
     bu_lt     = defaultdict(dict); bu_model  = defaultdict(dict)
     bu_city_month = defaultdict(lambda: defaultdict(dict))   # bu → city → month → count
     bu_medium_month = defaultdict(lambda: defaultdict(dict)) # bu → medium → month → count
+    bu_pri_date = defaultdict(lambda: defaultdict(dict))     # bu → priority → date → count
     model_bu_map = {}   # model (canonical case) → BU string
+
+    # Build city→priority lookup from oem_data for bu_pri_date aggregation
+    _city_pri = {}  # (bu, city_lower) → priority label
+    for _b, _bus in (oem_data or {}).items():
+        for _bu, _cities in _bus.items():
+            for _city, _od in _cities.items():
+                _city_pri[(_bu, _city.lower())] = _od.get("p", "ROI")
     dealer_code_map = {}  # dealer_key → verified_dealer code
     dealer_name_map = {}  # dealer_key → Dealer_Name
     brand_date_min = {}   # brand → earliest lead date (datetime)
@@ -814,6 +822,10 @@ def build_aggregations(all_rows, model_to_bu=None):
         inc(bu_state[bu],   state)
         inc(bu_city[bu],    city)
         if city and month: inc(bu_city_month[bu][city], month)
+        if lead_dt:
+            date_str = lead_dt.strftime("%Y-%m-%d")
+            pri = _city_pri.get((bu, city.lower() if city else ""), "ROI")
+            inc(bu_pri_date[bu][pri], date_str)
         inc(state_bu_month[state][bu], month)
         inc(bu_dealer[bu],  dealer)
         inc(bu_lt[bu],      lt)
@@ -879,6 +891,8 @@ def build_aggregations(all_rows, model_to_bu=None):
         "bu_city_month": {bu: {city: {m: v.get(m,0) for m in months_present}
                                for city, v in cities.items()}
                           for bu, cities in bu_city_month.items()},
+        "bu_pri_date":   {bu: {pri: dict(dates) for pri, dates in pris.items()}
+                          for bu, pris in bu_pri_date.items()},
         "bu_dealer":     dict(bu_dealer),
         "bu_lt":         dict(bu_lt),
         "bu_model":      dict(bu_model),
@@ -1028,12 +1042,12 @@ def main():
         for src, tgt in BRAND_ALIASES.items(): print(f"  Brand  : '{src}' → '{tgt}'")
     if BU_ALIASES:
         for src, tgt in BU_ALIASES.items():    print(f"  BU     : '{src}' → '{tgt}'")
+    # Load OEM data before aggregations so bu_pri_date can use city→priority mapping
+    oem_data = load_oem_data(REPO_ROOT)
     print("Building aggregations...")
-    dash = build_aggregations(all_rows, model_to_bu=model_to_bu)
+    dash = build_aggregations(all_rows, model_to_bu=model_to_bu, oem_data=oem_data)
     print(f"Total: {dash['total']:,} | Brands: {list(dash['by_brand'].keys())}")
 
-    # Embed OEM city-level sales distribution
-    oem_data = load_oem_data(REPO_ROOT)
     if oem_data:
         dash["oem_data"] = oem_data
     ims_data = load_ims_data(REPO_ROOT)
