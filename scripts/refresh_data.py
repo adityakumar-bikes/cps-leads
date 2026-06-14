@@ -546,7 +546,8 @@ def load_model_bu_mapping(repo_root):
         return {}
 
 
-OEM_DIST_FILE = "All Brand - All BU -OEM sales distribution.xlsx"
+OEM_DIST_FILE  = "All Brand - All BU -OEM sales distribution.xlsx"
+LEAD_ASK_FILE  = "LEAD ASK.xlsx"
 
 def load_oem_data(repo_root):
     """Load OEM city-level sales distribution from Classification sheet.
@@ -646,6 +647,97 @@ def load_ims_data(repo_root):
         return result
     except Exception as e:
         print(f"Warning: Could not load IMS data: {e}")
+        return {}
+
+
+def load_ask_data(repo_root):
+    """Load monthly ask targets from LEAD ASK.xlsx.
+    Returns: { "Apr'2026": { brand: { model: { t, o, g, f } } }, ... }
+    Columns: OEM(0), BU(1), Model(2), then groups of 4 (Total/Organic/Google/FB)
+    for Apr'26 (3-6), May'26 (7-10), Jun'26 (11-14, mislabeled as May'26 in file).
+    """
+    xlsx_path = os.path.join(repo_root, LEAD_ASK_FILE)
+    if not os.path.exists(xlsx_path):
+        print(f"Note: {LEAD_ASK_FILE} not found — skipping ask_data")
+        return {}
+    try:
+        wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        wb.close()
+        if len(rows) < 3:
+            return {}
+
+        month_cols = {
+            "Apr'2026": (3, 4, 5, 6),
+            "May'2026": (7, 8, 9, 10),
+            "Jun'2026": (11, 12, 13, 14),
+        }
+        model_map = {
+            'Apache RR310': 'TVS Apache RR 310', 'Apache RTR 310': 'TVS Apache RTR 310',
+            'Apache RTR 160': 'TVS Apache RTR 160', 'Apache RTR 180': 'TVS Apache RTR 180',
+            'Apache RTR 200 4V': 'TVS Apache RTR 200 4V', 'Ronin': 'TVS Ronin',
+            'Jupiter 110': 'TVS Jupiter', 'Jupiter 125': 'TVS Jupiter 125',
+            'Ntorq 125': 'TVS NTORQ 125', 'Scooty Zest 110': 'TVS Scooty Zest',
+            'Radeon': 'TVS Radeon', 'Raider 125': 'TVS Raider',
+            'Sport': 'TVS Sport', 'XL100': 'TVS XL100', 'iQube': 'TVS iQube',
+            'Magnus Neo': 'Ampere Magnus Neo', 'New Magnus Neo': 'New Ampere Magnus Neo',
+            'Nexus': 'Ampere Nexus', 'Reo': 'Ampere Reo',
+            'Magnus G Max': 'Ampere Magnus G Max', 'Magnus Grand': 'Ampere Magnus Grand',
+            'OLA S1 Pro': 'Ola S1 Pro', 'OLA S1 Pro Plus': 'Ola S1 Pro Plus',
+            'OLA S1 X': 'Ola S1 X', 'OLA S1 X Plus': 'Ola S1 X Plus',
+            'Bgauss C12i': 'BGauss C12i', 'Bgauss RUV 350': 'BGauss RUV 350',
+            'Bajaj Gogo P5009': 'Bajaj GoGo P5009', 'Bajaj Gogo P7012': 'Bajaj GoGo P7012',
+            'Bajaj Gogo P5012': 'Bajaj GoGo P5012',
+            'Bajaj Maxima Xl Cargo E-TEC 9.0': 'Bajaj Maxima XL Cargo E-TEC 9.0',
+            'Bajaj Maxima Xl Cargo E-TEC 12.0': 'Bajaj Maxima XL Cargo E-TEC 12.0',
+            'Bajaj Riki P40': 'Bajaj Riki P40 05 E Rickshaw',
+            'Bajaj Riki C40': 'Bajaj Riki C40 05 E Cart',
+            'Bajaj Wego P9018': 'Bajaj WEGO P9018', 'Bajaj Wego P70': 'Bajaj WEGO P70',
+            'Bajaj Wego C90': 'Bajaj WEGO C90',
+            'HUSQVARNA SVARTPILEN 401': 'Husqvarna Svartpilen 401',
+            'HUSQVARNA VITPILEN 250': 'Husqvarna Vitpilen 250',
+            'Ather 450 S': 'Ather 450S', 'Ather 450 X': 'Ather 450X',
+            'Aprilia Storm': 'Aprilia SR Storm',
+            'Bajaj Chetak 2501': 'Bajaj Chetak C2501',
+        }
+        # OEM column values → dashboard brand names
+        brand_map = {'Ampere': 'Ampere Electric', 'OLA': 'Ola Electric'}
+
+        result = {}
+        last_oem = None
+        for row in rows[2:]:
+            if not any(r for r in row if r is not None):
+                continue
+            if row[0]:
+                last_oem = str(row[0]).strip()
+            oem = last_oem
+            if not oem:
+                continue
+            bu        = str(row[1]).strip() if row[1] else ''
+            model_raw = str(row[2]).strip() if row[2] else ''
+            if not model_raw or model_raw == 'None':
+                continue
+            # Piaggio brand comes from BU (Aprilia / Vespa)
+            brand = bu if oem == 'Piaggio' else brand_map.get(oem, oem)
+            model = model_map.get(model_raw, model_raw)
+
+            for month, (tc, oc, gc, fc) in month_cols.items():
+                t = int(row[tc] or 0) if len(row) > tc and row[tc] else 0
+                o = int(row[oc] or 0) if len(row) > oc and row[oc] else 0
+                g = int(row[gc] or 0) if len(row) > gc and row[gc] else 0
+                f = int(row[fc] or 0) if len(row) > fc and row[fc] else 0
+                if t == 0 and o == 0 and g == 0 and f == 0:
+                    continue
+                result.setdefault(month, {}).setdefault(brand, {})[model] = \
+                    {'t': t, 'o': o, 'g': g, 'f': f}
+
+        months_loaded = {m: sum(len(b) for b in brands.values()) for m, brands in result.items()}
+        print(f"Loaded ask_data: {months_loaded}")
+        return result
+    except Exception as e:
+        print(f"Warning: Could not load ask data: {e}")
+        import traceback; traceback.print_exc()
         return {}
 
 
@@ -1053,6 +1145,9 @@ def main():
     ims_data = load_ims_data(REPO_ROOT)
     if ims_data:
         dash["ims_mapping"] = ims_data
+    ask_data = load_ask_data(REPO_ROOT)
+    if ask_data:
+        dash["ask_data"] = ask_data
 
     # Stamp version + deployment timestamp (IST)
     new_version = manifest.get("version", 0) + 1
