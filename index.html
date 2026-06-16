@@ -1007,7 +1007,12 @@ window.addEventListener('DOMContentLoaded',()=>{
     document.body.classList.add('light');
     document.getElementById('theme-toggle').textContent='☀️ Light';
   }
-  fetch('data.json').then(r=>r.json()).then(data=>{
+  const _sub=document.getElementById('hdr-sub');
+  if(_sub)_sub.textContent='Loading data…';
+  fetch('data.json').then(r=>{
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    return r.json();
+  }).then(data=>{
     D=data;
     (function(){
       const mp=D.months_present;
@@ -1027,7 +1032,11 @@ window.addEventListener('DOMContentLoaded',()=>{
     const verStr=D.version?`<div style="font-size:.7rem;margin-top:3px;color:#6c8ebf;letter-spacing:.3px">v${D.version} &bull; ${deployedAt}</div>`:'';
     document.getElementById('hdr-meta').innerHTML=`${D.total.toLocaleString()} leads &bull; ${D.months_present.length} months`+verStr;
     applyFilters();
-  }).catch(e=>console.error('Dashboard data load failed:',e));
+  }).catch(e=>{
+    const sub=document.getElementById('hdr-sub');
+    if(sub)sub.textContent='Error loading data — please refresh ('+e.message+')';
+    console.error('Dashboard data load failed:',e);
+  });
 });
 function populateBrandFilter(){
   const prev=[..._msSel.brand];
