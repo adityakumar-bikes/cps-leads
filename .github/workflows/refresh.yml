@@ -64,7 +64,7 @@ jobs:
             echo "No data changes — nothing to commit."
           else
             git commit -m "data: refresh CPS leads $(date -u '+%Y-%m-%d %H:%M UTC')"
-            git pull --rebase origin main
+            git pull --rebase -X theirs origin main
             git push
             echo "✅ Data committed and pushed."
           fi
