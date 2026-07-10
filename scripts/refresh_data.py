@@ -510,39 +510,41 @@ def normalize_state(state: str) -> str:
         return state
     return STATE_NORMALIZE.get(state.strip().lower(), state.strip())
 
-def load_model_bu_mapping(repo_root):
-    """Load Model Name → BU mapping from Bajaj Mapping.xlsx in repo root.
+MODEL_MAP_SHEET_TAB = "Model Mapping"
+
+def load_model_bu_mapping(sheets_svc):
+    """Load Model Name → BU mapping from the live 'Model Mapping' tab of the shared Google Sheet.
     Returns dict: {model_name_lowercase: BU_string}
     """
-    xlsx_path = os.path.join(repo_root, "Bajaj Mapping.xlsx")
-    if not os.path.exists(xlsx_path):
-        print("Bajaj Mapping.xlsx not present — BU will fall back to brand name (intentional)")
-        return {}
     try:
-        wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
-        ws = wb.active
-        rows = list(ws.iter_rows(values_only=True))
-        wb.close()
+        resp = sheets_svc.spreadsheets().values().get(
+            spreadsheetId=ASK_SHEET_ID,
+            range=f"'{MODEL_MAP_SHEET_TAB}'",
+            valueRenderOption="UNFORMATTED_VALUE",
+        ).execute()
+        rows = resp.get("values", [])
         if not rows:
+            print(f"Note: '{MODEL_MAP_SHEET_TAB}' tab is empty — BU will fall back to brand name (intentional)")
             return {}
+        max_len = max(len(r) for r in rows)
+        rows = [r + [None] * (max_len - len(r)) for r in rows]
         header = [str(c).strip().lower() if c else "" for c in rows[0]]
         model_idx = next((i for i, h in enumerate(header) if "model" in h), None)
         bu_idx    = next((i for i, h in enumerate(header) if h == "bu"), None)
         if model_idx is None or bu_idx is None:
-            print(f"Warning: Bajaj Mapping.xlsx missing 'Model Name' or 'BU' column (found: {header})")
+            print(f"Warning: '{MODEL_MAP_SHEET_TAB}' tab missing 'Model Name' or 'BU' column (found: {header})")
             return {}
         mapping = {}
         for row in rows[1:]:
-            if len(row) <= max(model_idx, bu_idx):
-                continue
             model = str(row[model_idx]).strip() if row[model_idx] else ""
             bu    = str(row[bu_idx]).strip()    if row[bu_idx]    else ""
             if model and bu:
                 mapping[model.lower()] = bu
-        print(f"Loaded BU mapping: {len(mapping)} model → BU entries")
+        print(f"Loaded BU mapping from Sheet '{MODEL_MAP_SHEET_TAB}': {len(mapping)} model → BU entries")
         return mapping
     except Exception as e:
-        print(f"Warning: Could not load Bajaj Mapping.xlsx: {e}")
+        print(f"Warning: Could not load Model Mapping from Sheet: {e}")
+        import traceback; traceback.print_exc()
         return {}
 
 
@@ -1132,7 +1134,7 @@ def main():
     print(f"Saved all_leads.json.gz ({len(all_rows):,} rows, {gz_mb:.1f} MB)")
 
     # Load BU mapping and build aggregations
-    model_to_bu = load_model_bu_mapping(REPO_ROOT)
+    model_to_bu = load_model_bu_mapping(sheets_svc)
     print("Active nomenclature rules:")
     if BRAND_ALIASES:
         for src, tgt in BRAND_ALIASES.items(): print(f"  Brand  : '{src}' → '{tgt}'")
