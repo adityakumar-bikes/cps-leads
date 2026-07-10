@@ -654,11 +654,44 @@ def load_ims_data(repo_root):
 ASK_SHEET_ID  = "17PSrhhMEQ-kvvi434jVsuXKgmVrGBUBDJsmIPgAazo0"
 ASK_SHEET_TAB = "Consol Ask"
 
+_MONTH_ABBR = {'jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'}
+
+def _find_ask_header_row(rows):
+    """Scan rows for the one containing 'OEM' and 'BU' header cells (case-insensitive).
+    Returns (row_index, oem_col, bu_col, model_col, month_cols) or None if not found.
+    month_cols = {"Apr'2026": start_col_index, ...} — each month spans 4 columns
+    (Total/Organic/Google/FB) starting at start_col_index.
+    """
+    month_re = re.compile(r"^([A-Za-z]{3})'?\s*(\d{2,4})$")
+    for ridx, row in enumerate(rows):
+        cells = [str(c).strip() if c is not None else '' for c in row]
+        oem_col = next((i for i, c in enumerate(cells) if c.lower() == 'oem'), None)
+        bu_col  = next((i for i, c in enumerate(cells) if c.lower() == 'bu'), None)
+        if oem_col is None or bu_col is None:
+            continue
+        model_col = next((i for i, c in enumerate(cells) if 'model' in c.lower()), None)
+        if model_col is None:
+            continue
+        month_cols = {}
+        for i, c in enumerate(cells):
+            m = month_re.match(c)
+            if not m:
+                continue
+            abbr, yr = m.group(1).title(), m.group(2)
+            if abbr.lower() not in _MONTH_ABBR:
+                continue
+            year_full = ('20' + yr) if len(yr) == 2 else yr
+            month_cols[f"{abbr}'{year_full}"] = i
+        if month_cols:
+            return ridx, oem_col, bu_col, model_col, month_cols
+    return None
+
+
 def load_ask_data(sheets_svc):
     """Load monthly ask targets from the live 'Consol Ask' tab of the shared Google Sheet.
     Returns: { "Apr'2026": { brand: { model: { t, o, g, f } } }, ... }
-    Columns: OEM(0), BU(1), Model(2), then groups of 4 (Total/Organic/Google/FB)
-    for Apr'26 (3-6), May'26 (7-10), Jun'26 (11-14, mislabeled as May'26 in file).
+    Header row (OEM/BU/Model + month columns) and data start are detected dynamically
+    since the sheet layout/column count changes as months are added by hand.
     """
     try:
         resp = sheets_svc.spreadsheets().values().get(
@@ -674,11 +707,14 @@ def load_ask_data(sheets_svc):
             print(f"Note: '{ASK_SHEET_TAB}' tab has <3 rows — skipping ask_data")
             return {}
 
-        month_cols = {
-            "Apr'2026": (3, 4, 5, 6),
-            "May'2026": (7, 8, 9, 10),
-            "Jun'2026": (11, 12, 13, 14),
-        }
+        hdr = _find_ask_header_row(rows)
+        if hdr is None:
+            print(f"Warning: '{ASK_SHEET_TAB}' tab — could not find OEM/BU/Model/month header row")
+            return {}
+        hdr_row_idx, oem_col, bu_col, model_col, month_starts = hdr
+        # Data starts 2 rows below the header row (row+1 is the Total/Organic/Google/FB sub-header)
+        data_rows = rows[hdr_row_idx + 2:]
+        month_cols = {month: (c, c + 1, c + 2, c + 3) for month, c in month_starts.items()}
         model_map = {
             'Apache RR310': 'TVS Apache RR 310', 'Apache RTR 310': 'TVS Apache RTR 310',
             'Apache RTR 160': 'TVS Apache RTR 160', 'Apache RTR 180': 'TVS Apache RTR 180',
@@ -708,20 +744,20 @@ def load_ask_data(sheets_svc):
             'Bajaj Chetak 2501': 'Bajaj Chetak C2501',
         }
         # OEM column values → dashboard brand names
-        brand_map = {'Ampere': 'Ampere Electric', 'OLA': 'Ola Electric'}
+        brand_map = {'Ampere': 'Ampere Electric', 'OLA': 'Ola Electric', 'Jawa/Yezdi': 'Jawa'}
 
         result = {}
         last_oem = None
-        for row in rows[2:]:
-            if not any(r for r in row if r is not None):
+        for row in data_rows:
+            if not any(c for c in row if c is not None):
                 continue
-            if row[0]:
-                last_oem = str(row[0]).strip()
+            if row[oem_col]:
+                last_oem = str(row[oem_col]).strip()
             oem = last_oem
             if not oem:
                 continue
-            bu        = str(row[1]).strip() if row[1] else ''
-            model_raw = str(row[2]).strip() if row[2] else ''
+            bu        = str(row[bu_col]).strip() if row[bu_col] else ''
+            model_raw = str(row[model_col]).strip() if row[model_col] else ''
             if not model_raw or model_raw == 'None':
                 continue
             # Piaggio brand comes from BU (Aprilia / Vespa)
