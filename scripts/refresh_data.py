@@ -55,11 +55,22 @@ SKIP_SHEETS = {
     "state wise",
 }
 
-VALID_BRANDS = {
-    "ather", "bgauss", "ampere electric", "ampere", "vespa", "aprilia", "piaggio",
-    "ola electric", "ola", "bajaj", "bajaj chetak", "ktm", "triumph",
-    "husqvarna motorcycles", "husqvarna", "tvs", "jawa", "yezdi", "bsa",
-}
+# Values a brand cell might contain that are clearly NOT a real brand name
+# (placeholder text, blank-ish cells, stray numbers from a misaligned column).
+# Anything else is accepted as-is — this is intentionally NOT a fixed brand
+# whitelist, so a brand-new OEM's data is picked up automatically the moment
+# it appears in Drive, without needing a code change here.
+_INVALID_BRAND_VALUES = {"", "n/a", "na", "-", "none", "null", "test", "brand", "0"}
+
+def _looks_like_brand(s: str) -> bool:
+    s = (s or "").strip()
+    if not s or s.lower() in _INVALID_BRAND_VALUES:
+        return False
+    if len(s) > 60:
+        return False
+    if s.replace('.', '', 1).isdigit():
+        return False
+    return True
 
 # Normalize short brand names → canonical display names (for consistent aggregation)
 BRAND_NORMALIZE = {
@@ -82,48 +93,24 @@ BRAND_ALIASES = {
 }
 
 def is_brand_sheet(sheet_label: str) -> bool:
-    """Return True only if this sheet name looks like a brand data sheet.
+    """Return True unless this sheet is a known utility/summary tab.
 
-    Rules (applied to lowercased, stripped sheet label):
-      1. Must contain at least one valid brand name   — OR —
-         be a plain month label (e.g. "apr'25", "feb 2026")
-      2. Must NOT be in the hard SKIP_SHEETS list
+    Deliberately name-agnostic beyond the SKIP_SHEETS deny-list: a brand-new
+    OEM's tab (whatever it's named — a new brand, BU code, or month label we
+    haven't seen before) is accepted here and only actually ingested if its
+    header row contains real 'brand' + 'Medium' columns (checked in
+    parse_zip_rows / export_via_sheets_api) — that content check is the real
+    gate, so this function doesn't need a brand-name whitelist.
     """
     sl = sheet_label.lower().strip()
-
-    # Hard skip list wins
+    if not sl:
+        return False
     if sl in SKIP_SHEETS:
         return False
-    # Also partial-match skip list (e.g. "city wise source wise …")
     for skip in SKIP_SHEETS:
         if skip in sl:
             return False
-
-    # Accept if the sheet name contains a brand (or first word of multi-word brand)
-    for brand in VALID_BRANDS:
-        if brand in sl:
-            return True
-        # e.g. sheet "Ampere" should match brand "ampere electric"
-        first_word = brand.split()[0]
-        if len(first_word) >= 4 and first_word in sl:
-            return True
-
-    # Accept Bajaj sub-brand / BU sheet names that don't match brand strings directly
-    # e.g. sheets named "Chetak", "UB", "MC", "PB", "TRM", "CV", "KTM" etc.
-    BAJAJ_SHEET_ALIASES = {
-        "chetak", "ub", "mc", "pb", "trm", "cv",
-        "urban bike", "urban bikes", "motorcycle", "motorcycles",
-        "commercial vehicle", "commercial vehicles", "probiking",
-    }
-    if sl in BAJAJ_SHEET_ALIASES or any(a in sl for a in BAJAJ_SHEET_ALIASES):
-        return True
-
-    # Accept plain month sheets: "apr'25", "feb'26", "jan 2026", etc.
-    import re as _re
-    if _re.search(r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)", sl):
-        return True
-
-    return False
+    return True
 
 COLS = [
     "encrypt_mobile_number", "id_verified_lead", "opty_id", "Date",
@@ -318,7 +305,7 @@ def export_via_sheets_api(sheets_svc, file_id, file_name):
             if len(data_row) <= brand_idx:
                 continue
             brand = str(data_row[brand_idx]).strip()
-            if not brand or brand.lower() not in VALID_BRANDS:
+            if not _looks_like_brand(brand):
                 continue
             row = {}
             for col, idx in hdr_map.items():
@@ -341,9 +328,10 @@ def export_via_sheets_api(sheets_svc, file_id, file_name):
 def parse_zip_rows(zip_buf, file_name, file_id=None):
     """
     Open a ZIP of CSVs exported from Google Sheets.
-    Only process sheets whose name matches a brand name or month label.
-    Skips all summary/pivot sheets (Filter, City Wise, LT Wise, etc.).
-    Return list of row dicts with COLS keys, filtered to VALID_BRANDS.
+    Skips all summary/pivot sheets (Filter, City Wise, LT Wise, etc.) via
+    is_brand_sheet(); every other sheet is ingested if its header row has
+    real 'brand' + 'Medium' columns — no fixed brand whitelist, so a new
+    OEM's tab is picked up automatically.
     Each row is tagged with _file_id so stale rows can be purged on re-processing.
     """
     rows = []
@@ -395,7 +383,7 @@ def parse_zip_rows(zip_buf, file_name, file_id=None):
             sheet_rows = 0
             for raw_row in reader:
                 brand = str(raw_row.get(hdr_map.get("brand", ""), "") or "").strip()
-                if not brand or brand.lower() not in VALID_BRANDS:
+                if not _looks_like_brand(brand):
                     continue
                 row = {}
                 for col, fn in hdr_map.items():
@@ -898,7 +886,7 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
         lt      = norm_lt(r.get("lead_type",""))
         month   = str(r.get("Lead_Month","") or "").strip()
 
-        if not brand_raw or brand_raw.lower() not in VALID_BRANDS:
+        if not _looks_like_brand(brand_raw):
             continue
         if month in SKIP_MONTHS:
             continue
