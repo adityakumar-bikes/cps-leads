@@ -818,6 +818,7 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
     model_dealer = defaultdict(dict)
     medium_month = defaultdict(dict); lt_medium = defaultdict(dict)
     lt_month = defaultdict(dict); model_brand = defaultdict(dict)
+    model_medium = defaultdict(dict)
     state_month  = defaultdict(dict); city_month  = defaultdict(dict)
     model_month  = defaultdict(dict)
     brand_medium_month = defaultdict(lambda: defaultdict(dict))  # brand → medium → month → count
@@ -928,6 +929,7 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
         inc(lt_medium[lt],        medium)
         inc(lt_month[lt],         month)
         inc(model_brand[model],   brand)
+        inc(model_medium[model],  medium)
         inc(state_month[state],   month)
         inc(city_month[city],     month)
         inc(model_month[model],   month)
@@ -1001,6 +1003,7 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
         "lt_medium":     dict(lt_medium),
         "lt_month":      {k: {m: v.get(m,0) for m in months_present} for k,v in lt_month.items()},
         "model_brand":   dict(model_brand),
+        "model_medium":  dict(model_medium),
         "by_bu":         srt(by_bu),
         "bu_brand":      dict(bu_brand),
         "bu_medium":     dict(bu_medium),
