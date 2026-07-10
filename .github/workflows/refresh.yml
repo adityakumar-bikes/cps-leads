@@ -14,6 +14,13 @@ on:
 permissions:
   contents: write   # needed to commit updated data files back to the repo
 
+# Only one refresh runs at a time — extra triggers (manual clicks, cron, both)
+# queue behind it instead of piling up and getting stuck/cancelled by GitHub's
+# concurrent-job limits.
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false
+
 jobs:
   refresh:
     runs-on: ubuntu-latest
