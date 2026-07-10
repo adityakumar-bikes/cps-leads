@@ -547,7 +547,6 @@ def load_model_bu_mapping(repo_root):
 
 
 OEM_DIST_FILE  = "All Brand - All BU -OEM sales distribution.xlsx"
-LEAD_ASK_FILE  = "LEAD ASK.xlsx"
 
 def load_oem_data(repo_root):
     """Load OEM city-level sales distribution from Classification sheet.
@@ -650,22 +649,27 @@ def load_ims_data(repo_root):
         return {}
 
 
-def load_ask_data(repo_root):
-    """Load monthly ask targets from LEAD ASK.xlsx.
+ASK_SHEET_ID  = "17PSrhhMEQ-kvvi434jVsuXKgmVrGBUBDJsmIPgAazo0"
+ASK_SHEET_TAB = "Consol Ask"
+
+def load_ask_data(sheets_svc):
+    """Load monthly ask targets from the live 'Consol Ask' tab of the shared Google Sheet.
     Returns: { "Apr'2026": { brand: { model: { t, o, g, f } } }, ... }
     Columns: OEM(0), BU(1), Model(2), then groups of 4 (Total/Organic/Google/FB)
     for Apr'26 (3-6), May'26 (7-10), Jun'26 (11-14, mislabeled as May'26 in file).
     """
-    xlsx_path = os.path.join(repo_root, LEAD_ASK_FILE)
-    if not os.path.exists(xlsx_path):
-        print(f"Note: {LEAD_ASK_FILE} not found — skipping ask_data")
-        return {}
     try:
-        wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
-        ws = wb.active
-        rows = list(ws.iter_rows(values_only=True))
-        wb.close()
+        resp = sheets_svc.spreadsheets().values().get(
+            spreadsheetId=ASK_SHEET_ID,
+            range=f"'{ASK_SHEET_TAB}'",
+            valueRenderOption="UNFORMATTED_VALUE",
+        ).execute()
+        rows = resp.get("values", [])
+        # Pad ragged rows so index access (row[N]) never raises
+        max_len = max((len(r) for r in rows), default=0)
+        rows = [r + [None] * (max_len - len(r)) for r in rows]
         if len(rows) < 3:
+            print(f"Note: '{ASK_SHEET_TAB}' tab has <3 rows — skipping ask_data")
             return {}
 
         month_cols = {
@@ -733,10 +737,10 @@ def load_ask_data(repo_root):
                     {'t': t, 'o': o, 'g': g, 'f': f}
 
         months_loaded = {m: sum(len(b) for b in brands.values()) for m, brands in result.items()}
-        print(f"Loaded ask_data: {months_loaded}")
+        print(f"Loaded ask_data from Sheet '{ASK_SHEET_TAB}': {months_loaded}")
         return result
     except Exception as e:
-        print(f"Warning: Could not load ask data: {e}")
+        print(f"Warning: Could not load ask data from Sheet: {e}")
         import traceback; traceback.print_exc()
         return {}
 
@@ -1145,7 +1149,7 @@ def main():
     ims_data = load_ims_data(REPO_ROOT)
     if ims_data:
         dash["ims_mapping"] = ims_data
-    ask_data = load_ask_data(REPO_ROOT)
+    ask_data = load_ask_data(sheets_svc)
     if ask_data:
         dash["ask_data"] = ask_data
 
