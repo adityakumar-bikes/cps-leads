@@ -1074,6 +1074,8 @@ def main():
         with gzip.open(LEADS_F, "rt", encoding="utf-8") as f:
             all_rows = json.load(f)
         print(f"Loaded {len(all_rows):,} existing leads from {LEADS_F}")
+        _jul_cache = sum(1 for r in all_rows if r.get("Lead_Month") == "Jul'2026")
+        print(f"DEBUG: Jul'2026 rows in restored cache (before this run's file loop) = {_jul_cache:,}")
     else:
         print("all_leads.json.gz not in cache — forcing full reprocess of all Drive files.")
         manifest["processed"] = {}   # treat every file as new so they all get re-downloaded
@@ -1137,6 +1139,9 @@ def main():
         new_file_count += 1
         new_row_count += len(new_rows)
         print(f"    → {len(new_rows):,} rows added")
+        _jul_this_file = sum(1 for r in new_rows if r.get("Lead_Month") == "Jul'2026")
+        _jul_cumulative = sum(1 for r in all_rows if r.get("Lead_Month") == "Jul'2026")
+        print(f"    DEBUG: this file contributed {_jul_this_file:,} Jul'2026 rows | cumulative all_rows Jul'2026 = {_jul_cumulative:,}")
 
     if new_file_count == 0 and new_row_count == 0:
         print("\nNo new Drive files — rebuilding aggregations from cached leads.")
@@ -1151,8 +1156,12 @@ def main():
 
     # Deduplicate full dataset
     print(f"\nDeduplicating {len(all_rows):,} total rows...")
+    _jul_pre_dedup = sum(1 for r in all_rows if r.get("Lead_Month") == "Jul'2026")
+    print(f"DEBUG: Jul'2026 rows BEFORE dedup = {_jul_pre_dedup:,}")
     all_rows = deduplicate(all_rows)
     print(f"After dedup: {len(all_rows):,} unique leads")
+    _jul_post_dedup = sum(1 for r in all_rows if r.get("Lead_Month") == "Jul'2026")
+    print(f"DEBUG: Jul'2026 rows AFTER dedup = {_jul_post_dedup:,}")
 
     # Save leads (gzip-compressed — ~9MB vs 71MB raw)
     with gzip.open(LEADS_F, "wt", encoding="utf-8") as f:
@@ -1172,6 +1181,8 @@ def main():
     print("Building aggregations...")
     dash = build_aggregations(all_rows, model_to_bu=model_to_bu, oem_data=oem_data)
     print(f"Total: {dash['total']:,} | Brands: {list(dash['by_brand'].keys())}")
+    _jul_agg = sum(dash.get("brand_month", {}).get(b, {}).get("Jul'2026", 0) for b in dash["by_brand"])
+    print(f"DEBUG: Jul'2026 total from final brand_month aggregation = {_jul_agg:,}")
 
     if oem_data:
         dash["oem_data"] = oem_data
