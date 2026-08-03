@@ -45,15 +45,20 @@ jobs:
 
       # 4. Restore cached data (all_leads.json.gz + manifest.json)
       #    Key changes whenever manifest.json is committed (i.e. after each run).
-      #    Falls back to any prior cps-leads- cache on first run or cache miss.
+      #    Falls back to any prior cps-leads-v2- cache on first run or cache miss.
+      #    Bumped v1->v2: a stale/corrupted all_leads.json.gz under the old
+      #    prefix silently held ~182 rows for Jul'2026 instead of ~394K — every
+      #    run kept restoring that same bad blob via the restore-keys fallback
+      #    even after the source files were fixed. New prefix orphans it and
+      #    forces one full from-scratch rebuild from Drive.
       - name: Restore data cache
         uses: actions/cache@v4
         with:
           path: |
             data/all_leads.json.gz
-          key: cps-leads-${{ hashFiles('data/manifest.json') }}
+          key: cps-leads-v2-${{ hashFiles('data/manifest.json') }}
           restore-keys: |
-            cps-leads-
+            cps-leads-v2-
 
       # 5. Run the data pipeline
       - name: Refresh CPS data
