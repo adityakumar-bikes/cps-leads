@@ -646,9 +646,11 @@ _MONTH_ABBR = {'jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov'
 
 def _find_ask_header_row(rows):
     """Scan rows for the one containing 'OEM' and 'BU' header cells (case-insensitive).
-    Returns (row_index, oem_col, bu_col, model_col, month_cols) or None if not found.
-    month_cols = {"Apr'2026": start_col_index, ...} — each month spans 4 columns
-    (Total/Organic/Google/FB) starting at start_col_index.
+    Returns (row_index, oem_col, bu_col, model_col, month_starts) or None if not found.
+    month_starts = {"Apr'2026": start_col_index, ...} — each month's block start; block
+    WIDTH varies (some months have a 'Paid' sub-column inserted, some don't), so callers
+    must resolve each month's actual t/o/g/f sub-column offsets from the sub-header row
+    (see _resolve_ask_month_subcols) rather than assuming a fixed width.
     """
     month_re = re.compile(r"^([A-Za-z]{3})'?\s*(\d{2,4})$")
     for ridx, row in enumerate(rows):
@@ -660,7 +662,7 @@ def _find_ask_header_row(rows):
         model_col = next((i for i, c in enumerate(cells) if 'model' in c.lower()), None)
         if model_col is None:
             continue
-        month_cols = {}
+        month_starts = {}
         for i, c in enumerate(cells):
             m = month_re.match(c)
             if not m:
@@ -669,10 +671,43 @@ def _find_ask_header_row(rows):
             if abbr.lower() not in _MONTH_ABBR:
                 continue
             year_full = ('20' + yr) if len(yr) == 2 else yr
-            month_cols[f"{abbr}'{year_full}"] = i
-        if month_cols:
-            return ridx, oem_col, bu_col, model_col, month_cols
+            month_starts[f"{abbr}'{year_full}"] = i
+        if month_starts:
+            return ridx, oem_col, bu_col, model_col, month_starts
     return None
+
+
+def _resolve_ask_month_subcols(sub_header_row, month_starts):
+    """For each month's block, find its actual t/o/g/f column offsets by matching the
+    sub-header row's cell text (Total Leads/Organic/Google/FB), scanning only within that
+    month's own column range. Handles blocks of different widths (e.g. a 'Paid' column
+    inserted between Organic and Google in some months but not others) instead of assuming
+    every block is a fixed 4 columns wide.
+    """
+    starts_sorted = sorted(month_starts.items(), key=lambda kv: kv[1])
+    month_cols = {}
+    for idx, (month, start) in enumerate(starts_sorted):
+        end = starts_sorted[idx + 1][1] if idx + 1 < len(starts_sorted) else len(sub_header_row)
+        tc = oc = gc = fc = None
+        for i in range(start, end):
+            label = str(sub_header_row[i]).strip().lower() if i < len(sub_header_row) and sub_header_row[i] else ''
+            if 'total' in label and tc is None:
+                tc = i
+            elif label == 'organic' and oc is None:
+                oc = i
+            elif label == 'google' and gc is None:
+                gc = i
+            elif label in ('fb', 'facebook') and fc is None:
+                fc = i
+            # 'paid' column is intentionally ignored — the dashboard computes Paid as g+f itself
+        # Fall back to the old fixed-offset assumption for any sub-column not found by name,
+        # so a month whose sub-header text doesn't match still degrades gracefully.
+        if tc is None: tc = start
+        if oc is None: oc = start + 1
+        if gc is None: gc = start + 2
+        if fc is None: fc = start + 3
+        month_cols[month] = (tc, oc, gc, fc)
+    return month_cols
 
 
 def load_ask_data(sheets_svc):
@@ -701,8 +736,9 @@ def load_ask_data(sheets_svc):
             return {}
         hdr_row_idx, oem_col, bu_col, model_col, month_starts = hdr
         # Data starts 2 rows below the header row (row+1 is the Total/Organic/Google/FB sub-header)
+        sub_header_row = rows[hdr_row_idx + 1]
         data_rows = rows[hdr_row_idx + 2:]
-        month_cols = {month: (c, c + 1, c + 2, c + 3) for month, c in month_starts.items()}
+        month_cols = _resolve_ask_month_subcols(sub_header_row, month_starts)
         model_map = {
             'Apache RR310': 'TVS Apache RR 310', 'Apache RTR 310': 'TVS Apache RTR 310',
             'Apache RTR 160': 'TVS Apache RTR 160', 'Apache RTR 180': 'TVS Apache RTR 180',
