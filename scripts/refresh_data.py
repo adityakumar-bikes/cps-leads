@@ -678,17 +678,23 @@ def _find_ask_header_row(rows):
 
 
 def _resolve_ask_month_subcols(sub_header_row, month_starts):
-    """For each month's block, find its actual t/o/g/f column offsets by matching the
-    sub-header row's cell text (Total Leads/Organic/Google/FB), scanning only within that
-    month's own column range. Handles blocks of different widths (e.g. a 'Paid' column
+    """For each month's block, find its actual t/o/g/f/p column offsets by matching the
+    sub-header row's cell text (Total Leads/Organic/Google/FB/Paid), scanning only within
+    that month's own column range. Handles blocks of different widths (e.g. a 'Paid' column
     inserted between Organic and Google in some months but not others) instead of assuming
     every block is a fixed 4 columns wide.
+
+    'Paid' is tracked (not discarded) because some brands enter a single lump paid figure
+    there instead of splitting Google/FB separately (e.g. before channel-level attribution
+    is set up) — a row can have Organic + Paid filled in with Google/FB left completely
+    blank. The dashboard falls back to 'Paid' only when Google+FB are both empty, so a
+    brand using the split convention is unaffected.
     """
     starts_sorted = sorted(month_starts.items(), key=lambda kv: kv[1])
     month_cols = {}
     for idx, (month, start) in enumerate(starts_sorted):
         end = starts_sorted[idx + 1][1] if idx + 1 < len(starts_sorted) else len(sub_header_row)
-        tc = oc = gc = fc = None
+        tc = oc = gc = fc = pc = None
         for i in range(start, end):
             label = str(sub_header_row[i]).strip().lower() if i < len(sub_header_row) and sub_header_row[i] else ''
             if 'total' in label and tc is None:
@@ -699,14 +705,15 @@ def _resolve_ask_month_subcols(sub_header_row, month_starts):
                 gc = i
             elif label in ('fb', 'facebook') and fc is None:
                 fc = i
-            # 'paid' column is intentionally ignored — the dashboard computes Paid as g+f itself
+            elif label == 'paid' and pc is None:
+                pc = i
         # Fall back to the old fixed-offset assumption for any sub-column not found by name,
         # so a month whose sub-header text doesn't match still degrades gracefully.
         if tc is None: tc = start
         if oc is None: oc = start + 1
         if gc is None: gc = start + 2
         if fc is None: fc = start + 3
-        month_cols[month] = (tc, oc, gc, fc)
+        month_cols[month] = (tc, oc, gc, fc, pc)
     return month_cols
 
 
@@ -788,15 +795,16 @@ def load_ask_data(sheets_svc):
             brand = bu if oem == 'Piaggio' else brand_map.get(oem, oem)
             model = model_map.get(model_raw, model_raw)
 
-            for month, (tc, oc, gc, fc) in month_cols.items():
+            for month, (tc, oc, gc, fc, pc) in month_cols.items():
                 t = int(row[tc] or 0) if len(row) > tc and row[tc] else 0
                 o = int(row[oc] or 0) if len(row) > oc and row[oc] else 0
                 g = int(row[gc] or 0) if len(row) > gc and row[gc] else 0
                 f = int(row[fc] or 0) if len(row) > fc and row[fc] else 0
-                if t == 0 and o == 0 and g == 0 and f == 0:
+                p = int(row[pc] or 0) if pc is not None and len(row) > pc and row[pc] else 0
+                if t == 0 and o == 0 and g == 0 and f == 0 and p == 0:
                     continue
                 result.setdefault(month, {}).setdefault(brand, {})[model] = \
-                    {'t': t, 'o': o, 'g': g, 'f': f}
+                    {'t': t, 'o': o, 'g': g, 'f': f, 'p': p}
 
         months_loaded = {m: sum(len(b) for b in brands.values()) for m, brands in result.items()}
         print(f"Loaded ask_data from Sheet '{ASK_SHEET_TAB}': {months_loaded}")
