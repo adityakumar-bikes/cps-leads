@@ -751,7 +751,8 @@ def load_ask_data(sheets_svc):
             'Apache RTR 160': 'TVS Apache RTR 160', 'Apache RTR 180': 'TVS Apache RTR 180',
             'Apache RTR 200 4V': 'TVS Apache RTR 200 4V', 'Ronin': 'TVS Ronin',
             'Jupiter 110': 'TVS Jupiter', 'Jupiter 125': 'TVS Jupiter 125',
-            'Ntorq 125': 'TVS NTORQ 125', 'Scooty Zest 110': 'TVS Scooty Zest',
+            'Ntorq 125': 'TVS NTORQ 125', 'Ntorq 150': 'TVS NTorq 150',
+            'Scooty Zest 110': 'TVS Scooty Zest',
             'Radeon': 'TVS Radeon', 'Raider 125': 'TVS Raider',
             'Sport': 'TVS Sport', 'XL100': 'TVS XL100', 'iQube': 'TVS iQube',
             'Magnus Neo': 'Ampere Magnus Neo', 'New Magnus Neo': 'New Ampere Magnus Neo',
@@ -767,12 +768,13 @@ def load_ask_data(sheets_svc):
             'Bajaj Riki P40': 'Bajaj Riki P40 05 E Rickshaw',
             'Bajaj Riki C40': 'Bajaj Riki C40 05 E Cart',
             'Bajaj Wego P9018': 'Bajaj WEGO P9018', 'Bajaj Wego P70': 'Bajaj WEGO P70',
-            'Bajaj Wego C90': 'Bajaj WEGO C90',
+            'Bajaj Wego C90': 'Bajaj WEGO C90', 'Bajaj Wego P50': 'Bajaj WEGO P50',
             'HUSQVARNA SVARTPILEN 401': 'Husqvarna Svartpilen 401',
             'HUSQVARNA VITPILEN 250': 'Husqvarna Vitpilen 250',
             'Ather 450 S': 'Ather 450S', 'Ather 450 X': 'Ather 450X',
-            'Aprilia Storm': 'Aprilia SR Storm',
+            'Aprilia Storm': 'Aprilia SR Storm', 'Aprilia SR 175': 'Aprilia SR 175 hp.e',
             'Bajaj Chetak 2501': 'Bajaj Chetak C2501',
+            'Jawa 42FJ': 'Jawa 42 FJ',
         }
         # OEM column values → dashboard brand names
         brand_map = {'Ampere': 'Ampere Electric', 'OLA': 'Ola Electric', 'Jawa/Yezdi': 'Jawa'}
