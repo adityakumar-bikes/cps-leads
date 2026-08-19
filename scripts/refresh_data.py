@@ -775,6 +775,8 @@ def load_ask_data(sheets_svc):
             'Aprilia Storm': 'Aprilia SR Storm', 'Aprilia SR 175': 'Aprilia SR 175 hp.e',
             'Bajaj Chetak 2501': 'Bajaj Chetak C2501',
             'Jawa 42FJ': 'Jawa 42 FJ',
+            'Hero Super Splendor': 'Hero Super Splendor XTEC',
+            'BSA Scrambler': 'BSA Scrambler 650',
         }
         # OEM column values → dashboard brand names
         brand_map = {'Ampere': 'Ampere Electric', 'OLA': 'Ola Electric', 'Jawa/Yezdi': 'Jawa'}
