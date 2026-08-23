@@ -867,6 +867,8 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
     medium_month = defaultdict(dict); lt_medium = defaultdict(dict)
     lt_month = defaultdict(dict); model_brand = defaultdict(dict)
     model_medium = defaultdict(dict)
+    model_date = defaultdict(dict)   # model → date (YYYY-MM-DD) → count — trimmed to a
+                                      # rolling recent window below (see model_date trim)
     state_month  = defaultdict(dict); city_month  = defaultdict(dict)
     model_month  = defaultdict(dict)
     brand_medium_month = defaultdict(lambda: defaultdict(dict))  # brand → medium → month → count
@@ -998,6 +1000,7 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
             date_str = lead_dt.strftime("%Y-%m-%d")
             pri = _city_pri.get((bu, city.lower() if city else ""), "ROI")
             inc(bu_pri_date[bu][pri], date_str)
+            inc(model_date[model], date_str)
         inc(state_bu_month[state][bu], month)
         inc(bu_dealer[bu],  dealer)
         inc(bu_lt[bu],      lt)
@@ -1013,6 +1016,21 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
         return dict(sorted(d.items(), key=lambda x: -x[1]))
 
     brands_all = sorted(brands_set)
+
+    # model_date trim: day-level granularity for the *entire* multi-year history would
+    # balloon the embedded JSON (~30x the rows of model_month) for no real benefit — the
+    # only consumer is the Ask vs Actual tab's daily-trend table, whose month picker is
+    # capped to whatever months the "Consol Ask" sheet currently covers (a 5-month rolling
+    # window today). Keep a generous ~8-month rolling window instead of full history.
+    _model_dates_flat = [d for dates in model_date.values() for d in dates]
+    if _model_dates_flat:
+        _md_cutoff = (datetime.strptime(max(_model_dates_flat), "%Y-%m-%d")
+                      - timedelta(days=240)).strftime("%Y-%m-%d")
+        model_date = {
+            m: {d: v for d, v in dates.items() if d >= _md_cutoff}
+            for m, dates in model_date.items()
+        }
+        model_date = {m: dates for m, dates in model_date.items() if dates}
 
     return {
         "total":         sum(by_brand.values()),
@@ -1052,6 +1070,7 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
         "lt_month":      {k: {m: v.get(m,0) for m in months_present} for k,v in lt_month.items()},
         "model_brand":   dict(model_brand),
         "model_medium":  dict(model_medium),
+        "model_date":    model_date,
         "by_bu":         srt(by_bu),
         "bu_brand":      dict(bu_brand),
         "bu_medium":     dict(bu_medium),
