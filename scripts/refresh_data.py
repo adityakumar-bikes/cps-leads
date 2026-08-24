@@ -869,6 +869,9 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
     model_medium = defaultdict(dict)
     model_date = defaultdict(dict)   # model → date (YYYY-MM-DD) → count — trimmed to a
                                       # rolling recent window below (see model_date trim)
+    model_medium_date = defaultdict(lambda: defaultdict(dict))  # model → medium → date → count
+                                      # (same rolling window trim — powers the Ask vs Actual
+                                      # daily-trend table when the top-bar Source filter is set)
     state_month  = defaultdict(dict); city_month  = defaultdict(dict)
     model_month  = defaultdict(dict)
     brand_medium_month = defaultdict(lambda: defaultdict(dict))  # brand → medium → month → count
@@ -1001,6 +1004,7 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
             pri = _city_pri.get((bu, city.lower() if city else ""), "ROI")
             inc(bu_pri_date[bu][pri], date_str)
             inc(model_date[model], date_str)
+            inc(model_medium_date[model][medium], date_str)
         inc(state_bu_month[state][bu], month)
         inc(bu_dealer[bu],  dealer)
         inc(bu_lt[bu],      lt)
@@ -1031,6 +1035,17 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
             for m, dates in model_date.items()
         }
         model_date = {m: dates for m, dates in model_date.items() if dates}
+        # Same cutoff, same reasoning, for the medium-broken-out counterpart.
+        model_medium_date = {
+            m: {med: {d: v for d, v in dates.items() if d >= _md_cutoff}
+                for med, dates in meds.items()}
+            for m, meds in model_medium_date.items()
+        }
+        model_medium_date = {
+            m: {med: dates for med, dates in meds.items() if dates}
+            for m, meds in model_medium_date.items()
+        }
+        model_medium_date = {m: meds for m, meds in model_medium_date.items() if meds}
 
     return {
         "total":         sum(by_brand.values()),
@@ -1071,6 +1086,7 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
         "model_brand":   dict(model_brand),
         "model_medium":  dict(model_medium),
         "model_date":    model_date,
+        "model_medium_date": model_medium_date,
         "by_bu":         srt(by_bu),
         "bu_brand":      dict(bu_brand),
         "bu_medium":     dict(bu_medium),
