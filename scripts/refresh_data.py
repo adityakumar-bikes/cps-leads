@@ -867,6 +867,9 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
     medium_month = defaultdict(dict); lt_medium = defaultdict(dict)
     lt_month = defaultdict(dict); model_brand = defaultdict(dict)
     model_medium = defaultdict(dict)
+    model_medium_month = defaultdict(lambda: defaultdict(dict))  # model → medium → month → count
+                                      # (mirrors brand_medium_month — powers the Ask vs Actual
+                                      # tab's model-level Actual column when Source is filtered)
     model_date = defaultdict(dict)   # model → date (YYYY-MM-DD) → count — trimmed to a
                                       # rolling recent window below (see model_date trim)
     model_medium_date = defaultdict(lambda: defaultdict(dict))  # model → medium → date → count
@@ -986,6 +989,7 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
         inc(state_month[state],   month)
         inc(city_month[city],     month)
         inc(model_month[model],   month)
+        inc(model_medium_month[model][medium], month)
         inc(state_brand_month[state][brand], month)
         inc(city_brand_month[city][brand],   month)
 
@@ -1085,6 +1089,9 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
         "lt_month":      {k: {m: v.get(m,0) for m in months_present} for k,v in lt_month.items()},
         "model_brand":   dict(model_brand),
         "model_medium":  dict(model_medium),
+        "model_medium_month": {mo: {med: {m: v.get(m,0) for m in months_present}
+                               for med, v in meds.items()}
+                               for mo, meds in model_medium_month.items()},
         "model_date":    model_date,
         "model_medium_date": model_medium_date,
         "by_bu":         srt(by_bu),
