@@ -404,9 +404,23 @@ def parse_zip_rows(zip_buf, file_name, file_id=None):
 
 # ── Deduplication ─────────────────────────────────────────────────────────────
 
+_OPTY_SCI_NOTATION_RE = re.compile(r'^\d\.\d+E\+\d+$', re.IGNORECASE)
+
+
 def deduplicate(rows):
     """
     Two-pass dedup:
+
+    Pre-pass — some rows' opty_id arrives mangled into scientific notation
+      (e.g. "2.60822E+17" instead of the real 18-digit CRM id) because of a
+      cell-format inconsistency in the source sheet, not because the lead is
+      a duplicate. Left as-is, that rounded value would collide with every
+      other lead whose real opty_id happens to share the same leading digits,
+      and Pass 1 below would wrongly collapse many distinct leads into one
+      (seen concretely: 148 raw TVS rows sharing just 3 corrupted opty_id
+      strings, silently dropping 145 real leads). Treat these as if opty_id
+      were blank so they fall through to Pass 2's mobile-based dedup instead,
+      which doesn't depend on numeric precision.
 
     Pass 1 — rows WITH opty_id: deduplicated by opty_id alone.
       Trusts the CRM's globally-unique lead identifier. Two rows with different
@@ -420,6 +434,10 @@ def deduplicate(rows):
       cache with an empty opty_id and was re-downloaded with a filled opty_id.
       Within this pass, duplicate combos are also collapsed.
     """
+    for r in rows:
+        if _OPTY_SCI_NOTATION_RE.match(r.get("opty_id") or ""):
+            r["opty_id"] = ""
+
     # ── Pass 1: opty rows ────────────────────────────────────────────────────
     seen_opty   = set()
     opty_combos = set()   # combos already covered by an opty row
