@@ -45,20 +45,33 @@ jobs:
 
       # 4. Restore cached data (all_leads.json.gz + manifest.json)
       #    Key changes whenever manifest.json is committed (i.e. after each run).
-      #    Falls back to any prior cps-leads-v2- cache on first run or cache miss.
-      #    Bumped v1->v2: a stale/corrupted all_leads.json.gz under the old
-      #    prefix silently held ~182 rows for Jul'2026 instead of ~394K — every
-      #    run kept restoring that same bad blob via the restore-keys fallback
-      #    even after the source files were fixed. New prefix orphans it and
-      #    forces one full from-scratch rebuild from Drive.
+      #    Falls back to any prior cps-leads-v3- cache on first run or cache miss.
+      #    Bumped v1->v2 (Aug'26): a stale/corrupted all_leads.json.gz under the
+      #    old prefix silently held ~182 rows for Jul'2026 instead of ~394K.
+      #    Bumped v2->v3 (Sep'26): the same class of bug recurred at the Sep 1
+      #    month-boundary rebuild — manifest.json (committed to git in step 6)
+      #    recorded ~459K Aug'26 rows as processed, but the cache used by the
+      #    NEXT run didn't actually contain them, so by_month['Aug'2026'] fell
+      #    to ~300 leads dataset-wide. Root cause: the old setup used the
+      #    combined actions/cache@v4 action, whose save is an IMPLICIT step
+      #    that only runs at the very end of the job — strictly AFTER the git
+      #    commit+push in step 6 below. If the job dies anywhere between that
+      #    push and the end of the job (runner reclaimed, network blip, etc.),
+      #    git ends up with a manifest.json that claims files were processed
+      #    that the cache never actually captured — and since those files now
+      #    "look" already processed (modifiedTime matches), nothing ever
+      #    re-fetches them again. Split into explicit restore/save below with
+      #    the save moved BEFORE the git commit fixes this structurally: the
+      #    cache can now only be ahead of or equal to git, never behind it.
       - name: Restore data cache
-        uses: actions/cache@v4
+        id: cache-restore
+        uses: actions/cache/restore@v4
         with:
           path: |
             data/all_leads.json.gz
-          key: cps-leads-v2-${{ hashFiles('data/manifest.json') }}
+          key: cps-leads-v3-${{ hashFiles('data/manifest.json') }}
           restore-keys: |
-            cps-leads-v2-
+            cps-leads-v3-
 
       # 5. Run the data pipeline
       - name: Refresh CPS data
@@ -66,7 +79,17 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: python scripts/refresh_data.py
 
-      # 6. Commit & push updated files — NOT all_leads.json.gz (that lives in cache)
+      # 6. Save the cache BEFORE committing — see the note on step 4. This must
+      #    key off manifest.json's *post-run* content (same expression as the
+      #    restore key above), so this step has to come after step 5 writes it.
+      - name: Save data cache
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            data/all_leads.json.gz
+          key: cps-leads-v3-${{ hashFiles('data/manifest.json') }}
+
+      # 7. Commit & push updated files — NOT all_leads.json.gz (that lives in cache)
       - name: Commit updated data
         run: |
           git config user.name  "CPS Bot"
