@@ -897,6 +897,8 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
     model_month  = defaultdict(dict)
     brand_medium_month = defaultdict(lambda: defaultdict(dict))  # brand → medium → month → count
     state_medium_month = defaultdict(lambda: defaultdict(dict))  # state → medium → month → count
+    city_medium_month  = defaultdict(lambda: defaultdict(dict))  # city  → medium → month → count
+    lt_medium_month    = defaultdict(lambda: defaultdict(dict))  # leadtype → medium → month → count
     # Exact cross-sections for zero-approximation filtering in the dashboard
     state_brand_month = defaultdict(lambda: defaultdict(dict))   # state → brand → month → count
     city_brand_month  = defaultdict(lambda: defaultdict(dict))   # city  → brand → month → count
@@ -993,6 +995,7 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
         inc(state_lt[state],      lt)
         inc(city_brand[city],     brand)
         inc(city_medium[city],    medium)
+        inc(city_medium_month[city][medium], month)
         city_state_ctr[city][state] += 1
         inc(dealer_brand[dealer],  brand)
         inc(dealer_state[dealer],  state)
@@ -1001,6 +1004,7 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
         inc(model_dealer[model],   dealer)
         inc(medium_month[medium], month)
         inc(lt_medium[lt],        medium)
+        inc(lt_medium_month[lt][medium], month)
         inc(lt_month[lt],         month)
         inc(model_brand[model],   brand)
         inc(model_medium[model],  medium)
@@ -1093,9 +1097,12 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
         "state_brand":   dict(state_brand),
         "state_medium":  dict(state_medium),
         "state_medium_month": {s: {med: {m: v.get(m,0) for m in months_present} for med,v in mm.items()} for s,mm in state_medium_month.items()},
+        "lt_medium_month": {lt: {med: {m: v.get(m,0) for m in months_present} for med,v in mm.items()} for lt,mm in lt_medium_month.items()},
         "state_lt":      dict(state_lt),
         "city_brand":    dict(city_brand),
         "city_medium":   dict(city_medium),
+        # zero-filtered to keep the blob small — cities are ~2k and mostly sparse
+        "city_medium_month": {c: {med: {m: n for m,n in v.items() if n} for med,v in mm.items()} for c,mm in city_medium_month.items()},
         "city_state":    {c: s.most_common(1)[0][0] for c, s in city_state_ctr.items()},
         "dealer_brand":  dict(dealer_brand),
         "dealer_state":  dict(dealer_state),
