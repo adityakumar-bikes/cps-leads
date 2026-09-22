@@ -257,9 +257,19 @@ def export_via_sheets_api(sheets_svc, file_id, file_name):
             continue
         print(f"    reading sheet: {title}")
 
-        # Step 2: read all data from this sheet (with retries for transient errors)
+        # Step 2: read all data from this sheet (with retries for transient errors).
+        # A brand-eligible sheet that still fails after every retry must raise, not
+        # silently move on — a silent skip here makes this whole file's return value
+        # empty, which main() then permanently records as "rows": 0 under the file's
+        # *current* modifiedTime. The file looks successfully processed with zero
+        # data and is never retried until it's next edited. Concretely happened to
+        # the ~158K-row "TVS ... - Previous Month" file on 2026-09-22: a transient
+        # failure on its one real sheet silently zeroed it out for one pipeline
+        # cycle. Raising here instead lets main()'s existing except-block catch it
+        # and skip writing a manifest entry, so the file gets retried next run
+        # rather than being marked done with nothing in it.
         result = None
-        for attempt in range(4):
+        for attempt in range(5):
             try:
                 result = sheets_svc.spreadsheets().values().get(
                     spreadsheetId=file_id,
@@ -269,14 +279,14 @@ def export_via_sheets_api(sheets_svc, file_id, file_name):
                 ).execute()
                 break
             except Exception as e:
-                if attempt < 3:
+                if attempt < 4:
                     wait = 20 * (attempt + 1)
                     print(f"    ⚠ Sheets API attempt {attempt+1} failed for '{title}' ({e}), retrying in {wait}s…")
                     time.sleep(wait)
                 else:
-                    print(f"    ERROR reading sheet '{title}' after 4 attempts: {e}")
-        if result is None:
-            continue
+                    raise RuntimeError(
+                        f"Failed to read sheet '{title}' in '{file_name}' after 5 attempts"
+                    ) from e
 
         values = result.get("values", [])
         if not values or len(values) < 2:
