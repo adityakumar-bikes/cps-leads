@@ -228,74 +228,129 @@ def export_via_sheets_api(sheets_svc, file_id, file_name):
     Used as a fallback when the Drive ZIP export fails with exportSizeLimitExceeded.
     Returns list of row dicts with COLS keys, same as parse_zip_rows().
     Each row is tagged with _file_id so stale rows can be purged on re-processing.
+
+    Data rows are fetched in row-range chunks rather than one unbounded
+    values().get() call, and the fetched chunks are checked for internal gaps
+    (a chunk with no rows followed by a later chunk that has rows again) before
+    being accepted. This was added chasing what first looked like an API
+    response-size limit — an unbounded fetch of a sheet whose grid declared
+    157,674 rows came back with only ~90,000 data rows on 2026-09-29 — but
+    turned out to be the sheet's real content genuinely ending at row ~90,000,
+    with the rest of the declared grid just unused blank padding (a common
+    spreadsheet pattern: pre-formatted empty rows left below the data to grow
+    into). gridProperties.rowCount is therefore NOT a reliable "how much real
+    data is here" figure — chunking still guards against a genuine truncated
+    response (which shows up as a gap: empty then non-empty again), while
+    tolerating the normal case of real data simply ending before the grid does.
     """
     rows = []
     cols_lower = {c.lower(): c for c in COLS}
+    # There's no known hard row/size limit motivating a small chunk size here — the
+    # 2026-09-29 "truncation" that prompted chunking turned out to be real sparse
+    # data, not an API limit (confirmed: an unbounded fetch of a 157K-row sheet
+    # correctly returned all of it when that many rows were genuinely populated).
+    # Chunking is kept as defense-in-depth via the gap check below, but a large
+    # chunk size keeps the round-trip count (and runtime) down — measured at ~220s
+    # for one ~300K-row multi-sheet file at 20,000 rows/chunk, which is worth
+    # avoiding when it isn't buying real safety.
+    CHUNK_ROWS = 50000
 
-    # Step 1: list all sheets in the workbook (with retries)
+    # Step 1: list all sheets in the workbook, with each one's declared grid row
+    # count (needed for chunking + the completeness check below), with retries.
     meta = None
-    for attempt in range(4):
+    for attempt in range(5):
         try:
             meta = sheets_svc.spreadsheets().get(
                 spreadsheetId=file_id,
-                fields="sheets.properties.title",
+                fields="sheets.properties(title,gridProperties.rowCount)",
             ).execute()
             break
         except Exception as e:
-            if attempt < 3:
+            if attempt < 4:
                 wait = 20 * (attempt + 1)
                 print(f"    ⚠ Sheets API metadata attempt {attempt+1} failed ({e}), retrying in {wait}s…")
                 time.sleep(wait)
             else:
                 raise
-    sheet_titles = [s["properties"]["title"] for s in meta.get("sheets", [])]
-    print(f"    Sheets API: found {len(sheet_titles)} sheets in '{file_name}'")
+    sheets_info = [
+        (s["properties"]["title"], s["properties"].get("gridProperties", {}).get("rowCount", 0))
+        for s in meta.get("sheets", [])
+    ]
+    print(f"    Sheets API: found {len(sheets_info)} sheets in '{file_name}'")
 
-    for title in sheet_titles:
-        if not is_brand_sheet(title):
-            print(f"    skip sheet: {title}")
-            continue
-        print(f"    reading sheet: {title}")
-
-        # Step 2: read all data from this sheet (with retries for transient errors).
-        # A brand-eligible sheet that still fails after every retry must raise, not
-        # silently move on — a silent skip here makes this whole file's return value
-        # empty, which main() then permanently records as "rows": 0 under the file's
-        # *current* modifiedTime. The file looks successfully processed with zero
-        # data and is never retried until it's next edited. Concretely happened to
-        # the ~158K-row "TVS ... - Previous Month" file on 2026-09-22: a transient
-        # failure on its one real sheet silently zeroed it out for one pipeline
-        # cycle. Raising here instead lets main()'s existing except-block catch it
-        # and skip writing a manifest entry, so the file gets retried next run
-        # rather than being marked done with nothing in it.
-        result = None
+    def fetch_range(a1_range, label):
+        """One ranged values().get() call, with retries for transient errors.
+        Raises (rather than silently returning nothing) once retries are
+        exhausted — main()'s except-block around this whole function already
+        handles that by skipping the manifest write for this file, so it gets
+        retried next run instead of being recorded as successfully processed
+        with less data than it actually has."""
         for attempt in range(5):
             try:
                 result = sheets_svc.spreadsheets().values().get(
                     spreadsheetId=file_id,
-                    range=f"'{title}'",   # no column limit → full sheet
+                    range=a1_range,
                     valueRenderOption="FORMATTED_VALUE",
                     dateTimeRenderOption="FORMATTED_STRING",
                 ).execute()
-                break
+                return result.get("values", [])
             except Exception as e:
                 if attempt < 4:
                     wait = 20 * (attempt + 1)
-                    print(f"    ⚠ Sheets API attempt {attempt+1} failed for '{title}' ({e}), retrying in {wait}s…")
+                    print(f"    ⚠ Sheets API attempt {attempt+1} failed for {label} ({e}), retrying in {wait}s…")
                     time.sleep(wait)
                 else:
                     raise RuntimeError(
-                        f"Failed to read sheet '{title}' in '{file_name}' after 5 attempts"
+                        f"Failed to read {label} in '{file_name}' after 5 attempts"
                     ) from e
 
-        values = result.get("values", [])
-        if not values or len(values) < 2:
+    for title, grid_rows in sheets_info:
+        if not is_brand_sheet(title):
+            print(f"    skip sheet: {title}")
+            continue
+        print(f"    reading sheet: {title} (grid has {grid_rows:,} rows)")
+
+        header_chunk = fetch_range(f"'{title}'!1:1", f"{title!r} header row")
+        if not header_chunk:
+            print(f"    sheet '{title}': empty (no header), skipping")
+            continue
+        header = [str(h).strip() for h in header_chunk[0]]
+
+        chunks = []   # (row_cursor, end_row, chunk_values) per fetched range
+        row_cursor = 2   # first data row; row 1 is the header just fetched above
+        last_row = max(grid_rows, 1)
+        while row_cursor <= last_row:
+            end_row = min(row_cursor + CHUNK_ROWS - 1, last_row)
+            chunk = fetch_range(f"'{title}'!{row_cursor}:{end_row}", f"{title!r} rows {row_cursor}-{end_row}")
+            chunks.append((row_cursor, end_row, chunk))
+            row_cursor = end_row + 1
+
+        # gridProperties.rowCount is the sheet's allocated grid size, which is
+        # usually much larger than its real data (spreadsheets are commonly
+        # pre-formatted with a big block of blank rows below the data, ready to
+        # grow into) — so a chunk coming back short, or even fully empty, is
+        # normal once we've reached the end of real data, not a sign of trouble
+        # on its own. The actual truncation signature is a GAP: a chunk with no
+        # rows followed by a later chunk that has rows again. Real lead exports
+        # don't have holes in the middle, so that combination means some chunk's
+        # response was cut short, not that the sheet legitimately ended there.
+        first_empty = next((i for i, (_, _, c) in enumerate(chunks) if not c), None)
+        if first_empty is not None:
+            for rc, er, c in chunks[first_empty + 1:]:
+                if c:
+                    er0, ec0, _ = chunks[first_empty]
+                    raise RuntimeError(
+                        f"Sheet '{title}' in '{file_name}': rows {er0}-{ec0} came back empty but "
+                        f"rows {rc}-{er} afterward still have data — looks like a gap from a "
+                        f"truncated fetch, not the sheet legitimately ending, refusing to ship "
+                        f"a partial sheet."
+                    )
+
+        values = [row for _, _, c in chunks for row in c]
+        if not values:
             print(f"    sheet '{title}': empty or header-only, skipping")
             continue
-
-        # First non-empty row is the header
-        header_row = values[0]
-        header = [str(h).strip() for h in header_row]
+        print(f"    sheet '{title}': fetched {len(values):,} data rows (grid declares {grid_rows:,})")
 
         # Map header → canonical COLS (first occurrence wins — sheets can have duplicate col names)
         hdr_map = {}   # canonical_col → column_index
@@ -310,7 +365,7 @@ def export_via_sheets_api(sheets_svc, file_id, file_name):
 
         brand_idx  = hdr_map["brand"]
         sheet_rows = 0
-        for data_row in values[1:]:
+        for data_row in values:
             # Pad row to at least brand column width
             if len(data_row) <= brand_idx:
                 continue
