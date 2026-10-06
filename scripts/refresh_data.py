@@ -157,6 +157,13 @@ SETTLE_BUDGET = 1800
 # change after we've read it but before the run ends. After the main pass the folder is
 # listed again and anything that moved is re-read, at most this many times over.
 MAX_SWEEPS = 2
+# Drive's ZIP export refuses sheets beyond ~10 MB of CSV (roughly 20K rows of lead data) —
+# but only after grinding on it for 45-135 s, and sometimes by returning HTTP 500s that get
+# retried three times on top (measured 2026-10-06: 13 of the 14 minutes spent reading the six
+# rolling files went on ZIP attempts that failed; the Sheets API reads themselves took ~75 s
+# in total). A file whose last read was at least this many rows goes straight to the
+# Sheets API.
+ZIP_SKIP_ROWS = 15000
 
 
 # ── Auth & Drive helpers ─────────────────────────────────────────────────────
@@ -301,8 +308,12 @@ def wait_until_settled(drive_svc, file_id, name, listed_mtime, budget):
         budget["left"] -= pause
 
 
-def read_source_file(drive_svc, sheets_svc, file_id, name):
-    """All brand rows in one Drive file: ZIP export first, Sheets API when it's too big."""
+def read_source_file(drive_svc, sheets_svc, file_id, name, expected_rows=0):
+    """All brand rows in one Drive file: ZIP export first, Sheets API when it's too big.
+    `expected_rows` is how many rows the file had when last read (0 = never read); a file
+    that big skips the ZIP attempt, which would only fail slowly (see ZIP_SKIP_ROWS)."""
+    if expected_rows >= ZIP_SKIP_ROWS:
+        return export_via_sheets_api(sheets_svc, file_id, name)
     try:
         zip_buf = export_as_zip(drive_svc, file_id)
         return parse_zip_rows(zip_buf, name, file_id=file_id)
@@ -1444,7 +1455,7 @@ def main():
             if role:
                 mtime, settled = wait_until_settled(drive_svc, fid, name, mtime, settle_budget)
             try:
-                new_rows = read_source_file(drive_svc, sheets_svc, fid, name)
+                new_rows = read_source_file(drive_svc, sheets_svc, fid, name, prev.get("rows", 0))
             except Exception as e:
                 read_err = e
                 break
