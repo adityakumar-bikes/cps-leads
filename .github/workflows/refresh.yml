@@ -77,6 +77,10 @@ jobs:
       - name: Refresh CPS data
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          # Without this Python block-buffers stdout when it's piped, so the Actions log
+          # arrives in big late chunks — timestamps are useless for seeing where a ~20 min
+          # run spends its time, and the live log looks frozen while it works.
+          PYTHONUNBUFFERED: "1"
         run: python scripts/refresh_data.py
 
       # 6. Save the cache BEFORE committing — see the note on step 4. This must

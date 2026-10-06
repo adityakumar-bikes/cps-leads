@@ -153,6 +153,10 @@ SHRINK_WARN_RATIO = 0.7
 SETTLE_SECS = 300
 # ...but a run never spends more than this in total waiting on files that won't settle.
 SETTLE_BUDGET = 1800
+# A run takes ~20 min while the source job's writes are spread over ~90 min, so a file can
+# change after we've read it but before the run ends. After the main pass the folder is
+# listed again and anything that moved is re-read, at most this many times over.
+MAX_SWEEPS = 2
 
 
 # ── Auth & Drive helpers ─────────────────────────────────────────────────────
@@ -1388,10 +1392,17 @@ def main():
     print(f"Found {len(files)} Sheets files in Drive folder")
 
     # Things worth a human's attention this run; shown in the dashboard header.
-    warnings = []
-    def warn(msg):
+    # Warnings about one file are kept per file ID, and replaced whenever that file is
+    # read again later in the run, so what ends up in the header describes the read that
+    # actually went into the dashboard rather than an earlier, superseded one.
+    run_warnings = []
+    file_warnings = {}   # fid -> [msg]
+    def warn(msg, fid=None):
         print(f"  ⚠ {msg}")
-        warnings.append(msg)
+        if fid:
+            file_warnings.setdefault(fid, []).append(msg)
+        else:
+            run_warnings.append(msg)
 
     # ── Rolling-file roster ────────────────────────────────────────────────────
     # All six (TVS/Bike × T/T-1/T-2) are read every run, so say up front which
@@ -1410,55 +1421,18 @@ def main():
         elif len(found) > 1:
             warn(f"{len(found)} files are all named '{nm}' — all of them are read; worth checking the folder")
 
-    # ── Orphans ────────────────────────────────────────────────────────────────
-    # Files we ingested earlier that are no longer in the folder (deleted, trashed
-    # or moved — e.g. the temporary dated copies the source automation makes and
-    # removes around each month rollover). Their rows would otherwise sit in the
-    # cache forever as ghost copies of leads, shadowing the live files whenever
-    # those change. Only IDs recorded in the manifest count, so rows with no
-    # _file_id (very old ingests) are never touched, and a guard refuses to act if
-    # an implausible share of files "vanished" at once (a listing glitch, not
-    # real deletions) — they'd just be re-read next run if they reappear.
-    drive_ids = {f["id"] for f in files}
-    orphan_ids = [i for i in manifest["processed"] if i not in drive_ids]
-    if orphan_ids:
-        tracked = len(manifest["processed"])
-        if not files or len(orphan_ids) > max(3, tracked // 4):
-            warn(f"{len(orphan_ids)} of {tracked} tracked files are missing from the Drive listing — "
-                 f"too many to be real deletions, so leaving them alone this run")
-            orphan_ids = []
-        else:
-            for i in orphan_ids:
-                o = manifest["processed"].pop(i)
-                print(f"  🗑 no longer in the Drive folder: {o.get('name')} ({o.get('rows', 0):,} rows) — removing its rows")
-
-    new_file_count = 0
-    new_row_count = 0
-    fresh_rows = []     # rows read this run; appended after the stale copies are dropped
-    fresh_ids = set()   # IDs of files successfully (re-)read this run
+    # fid -> rows read this run. A file read a second time (see the sweep below) simply
+    # replaces its entry, so its earlier read can't linger next to the new one.
+    fresh_by_fid = {}
+    retry_ids = set()   # files whose read failed (or came back suspiciously empty) — tried again in the sweep
     run_info = {}       # fid -> {"checked": str, "ok": bool, "settled": bool}  for the roster
     settle_budget = {"left": SETTLE_BUDGET}
 
-    # Most recently modified last: the files a source job is still writing get the
-    # longest possible head start while we read everything else.
-    files = sorted(files, key=lambda x: x["modifiedTime"])
-
-    for f in files:
-        fid  = f["id"]
-        name = f["name"]
-        mtime = f["modifiedTime"]
-
-        prev = manifest["processed"].get(fid, {})
-        role = rolling_role(name)                       # ("TVS"|"Bike", "T"|"T-1"|"T-2") or None
-        renamed = bool(prev) and prev.get("name") != name
-        if prev.get("modifiedTime") == mtime and not role and not renamed:
-            print(f"  ✓ unchanged: {name}")
-            continue
-
-        why = (f"rolling {role[1]} — re-read every run" if role
-               else "renamed since last run" if renamed
-               else f"modified {mtime[:10]}")
-        print(f"  ↓ processing: {name}  ({why})")
+    def ingest(f, role, prev):
+        """Read one Drive file and fold the result into the manifest and this run's rows."""
+        fid, name, mtime = f["id"], f["name"], f["modifiedTime"]
+        file_warnings.pop(fid, None)     # a file's warnings are those of its most recent read
+        retry_ids.discard(fid)
         if role:
             run_info[fid] = {"checked": None, "ok": False, "settled": True}
 
@@ -1486,11 +1460,12 @@ def main():
                   + (" — reading it again" if attempt < 2 else ""))
             mtime, settled = after, False
         if read_err is not None:
-            warn(f"{name}: could not be read this run ({read_err}) — keeping the last successful read")
-            continue
+            warn(f"{name}: could not be read this run ({read_err}) — keeping the last successful read", fid)
+            retry_ids.add(fid)
+            return
         if role and not settled:
             warn(f"{name}: was still being modified by the source job when it was read, so these "
-                 f"figures may be a partial snapshot — the next refresh will pick up the finished file")
+                 f"figures may be a partial snapshot — the next refresh will pick up the finished file", fid)
         if role:
             run_info[fid]["settled"] = settled
 
@@ -1504,25 +1479,25 @@ def main():
                 # far more likely mid-write (or its headers changed) than genuinely wiped.
                 # Keep what we have and leave the manifest alone so it's retried.
                 warn(f"{name}: read 0 rows but held {prev_rows:,} on the last read — treating it as a "
-                     f"bad/mid-write read and keeping the existing rows")
-                continue
+                     f"bad/mid-write read and keeping the existing rows", fid)
+                retry_ids.add(fid)
+                return
             print(f"    (no brand rows found)")
             manifest["processed"][fid] = {"name": name, "modifiedTime": mtime, "rows": 0,
                                           "top_month": None, "checked": checked}
-            fresh_ids.add(fid)      # drop any leftover rows from an earlier, fuller version
+            fresh_by_fid[fid] = []      # drop any leftover rows from an earlier, fuller version
             if role:
                 run_info[fid].update(checked=checked, ok=True)
-            continue
+            return
 
         n = len(new_rows)
         if prev_rows and n < prev_rows * SHRINK_WARN_RATIO and prev.get("top_month") in (None, top_month):
-            warn(f"{name}: shrank from {prev_rows:,} to {n:,} rows ({n / prev_rows:.0%}) since the last read")
+            warn(f"{name}: shrank from {prev_rows:,} to {n:,} rows ({n / prev_rows:.0%}) since the last read", fid)
         if role and n >= 20000 and n % 10000 == 0:
             warn(f"{name}: has exactly {n:,} rows — a suspiciously round number, which usually means a "
-                 f"partially written or truncated sheet")
+                 f"partially written or truncated sheet", fid)
 
-        fresh_rows.extend(new_rows)
-        fresh_ids.add(fid)
+        fresh_by_fid[fid] = new_rows
         manifest["processed"][fid] = {
             "name": name,
             "modifiedTime": mtime,
@@ -1532,9 +1507,93 @@ def main():
         }
         if role:
             run_info[fid].update(checked=checked, ok=True)
-        new_file_count += 1
-        new_row_count += n
         print(f"    → {n:,} rows read" + (f"  (mostly {top_month})" if top_month else ""))
+
+    def process(file_list, first_pass):
+        """Read every file in `file_list` that needs it; returns how many were read.
+        On the first pass that's everything changed since the last run plus ALL rolling
+        files. On a later sweep it's only what has changed since this run read it."""
+        done = 0
+        # Most recently modified last: the files a source job is still writing get the
+        # longest possible head start while we read everything else.
+        for f in sorted(file_list, key=lambda x: x["modifiedTime"]):
+            fid, name, mtime = f["id"], f["name"], f["modifiedTime"]
+            prev = manifest["processed"].get(fid, {})
+            role = rolling_role(name)                   # ("TVS"|"Bike", "T"|"T-1"|"T-2") or None
+            renamed = bool(prev) and prev.get("name") != name
+            if prev.get("modifiedTime") == mtime and not (role and first_pass) and not renamed \
+                    and fid not in retry_ids:
+                if first_pass:
+                    print(f"  ✓ unchanged: {name}")
+                continue
+
+            why = (f"rolling {role[1]} — re-read every run" if role and first_pass
+                   else "renamed since last run" if renamed
+                   else f"modified {mtime[:10]}" if first_pass
+                   else "trying again — it couldn't be read properly earlier in this run" if fid in retry_ids
+                   else f"changed at {mtime[11:19]} UTC, after this run had read it" if prev
+                   else "new in the folder since this run started")
+            print(f"  ↓ processing: {name}  ({why})")
+            ingest(f, role, prev)
+            done += 1
+        return done
+
+    process(files, first_pass=True)
+
+    # ── Late changes ───────────────────────────────────────────────────────────
+    # The run above takes ~20 min and the source job's writes are spread over ~90 min
+    # each morning, so a file can change after we've read it but before the run ends
+    # (seen 2026-10-06: TVS "Previous to Previous Month" went from 110,000 to 157,672
+    # rows 7 min after a run had read it, and the dashboard kept the 110,000 until the
+    # next run). So list the folder again and re-read whatever moved on in the meantime.
+    for sweep in range(1, MAX_SWEEPS + 1):
+        print(f"\nLate-change check {sweep}/{MAX_SWEEPS}: looking at the Drive folder again…")
+        try:
+            latest = list_folder_sheets(drive_svc)
+        except Exception as e:
+            warn(f"could not re-list the Drive folder to look for late changes ({e})")
+            break
+        gone = {f["id"] for f in files} - {f["id"] for f in latest}
+        if gone and len(gone) > max(3, len(files) // 4):
+            # Same guard as for orphans: this looks like a listing glitch, not real deletions.
+            warn(f"{len(gone)} of {len(files)} files vanished from the folder listing between "
+                 f"the start and end of this run — ignoring the second listing")
+            break
+        files = latest
+        if process(files, first_pass=False) == 0:
+            print("  ✓ nothing changed while this run was in progress")
+            break
+
+    # ── Orphans ────────────────────────────────────────────────────────────────
+    # Files we ingested earlier that are no longer in the folder (deleted, trashed
+    # or moved — e.g. the temporary dated copies the source automation makes and
+    # removes around each month rollover). Their rows would otherwise sit in the
+    # cache forever as ghost copies of leads, shadowing the live files whenever
+    # those change. Only IDs recorded in the manifest count, so rows with no
+    # _file_id (very old ingests) are never touched, and a guard refuses to act if
+    # an implausible share of files "vanished" at once (a listing glitch, not
+    # real deletions) — they'd just be re-read next run if they reappear.
+    # Judged against the folder as it stands at the END of the run.
+    drive_ids = {f["id"] for f in files}
+    orphan_ids = [i for i in manifest["processed"] if i not in drive_ids]
+    if orphan_ids:
+        tracked = len(manifest["processed"])
+        if not files or len(orphan_ids) > max(3, tracked // 4):
+            warn(f"{len(orphan_ids)} of {tracked} tracked files are missing from the Drive listing — "
+                 f"too many to be real deletions, so leaving them alone this run")
+            orphan_ids = []
+        else:
+            for i in orphan_ids:
+                o = manifest["processed"].pop(i)
+                fresh_by_fid.pop(i, None)       # read earlier in this run, gone by its end
+                print(f"  🗑 no longer in the Drive folder: {o.get('name')} ({o.get('rows', 0):,} rows) — removing its rows")
+
+    fresh_ids  = set(fresh_by_fid)              # IDs of files successfully (re-)read this run
+    fresh_rows = [r for rows in fresh_by_fid.values() for r in rows]
+    new_file_count = sum(1 for rows in fresh_by_fid.values() if rows)
+    new_row_count  = len(fresh_rows)
+    # (a warning about a file that has since left the folder is no longer worth showing)
+    warnings = run_warnings + [w for fid, ws in file_warnings.items() if fid in drive_ids for w in ws]
 
     # Swap in the fresh reads. Every previously-cached row tagged with a file we just
     # re-read (or one that left the folder) is dropped first, unconditionally — not
