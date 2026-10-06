@@ -129,15 +129,30 @@ LT_NAMES = {
     "1003": "CPS - Brand",    "1000":"CPS - Other",
 }
 
+# Chronological month labels, generated rather than hand-listed: this used to stop
+# at Dec'2026, after which any newer month would have tied at the "unknown" sort key
+# and come out in arbitrary order in months_present.
 MONTH_ORDER = [
-    "Jan'2025","Feb'2025","Mar'2025","Apr'2025","May'2025","Jun'2025",
-    "Jul'2025","Aug'2025","Sep'2025","Oct'2025","Nov'2025","Dec'2025",
-    "Jan'2026","Feb'2026","Mar'2026","Apr'2026","May'2026","Jun'2026",
-    "Jul'2026","Aug'2026","Sep'2026","Oct'2026","Nov'2026","Dec'2026",
+    f"{m}'{y}"
+    for y in range(2025, 2036)
+    for m in ("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec")
 ]
 
 # Months to exclude from all aggregations and dashboard output
 SKIP_MONTHS = {"Mar'2025"}
+
+# A file that held at least this many rows on its last read but reads as completely
+# empty now is treated as a bad/mid-write read (its existing rows are kept).
+EMPTY_GUARD_ROWS = 1000
+# Warn when a re-read file comes back with fewer than this fraction of its last row count.
+SHRINK_WARN_RATIO = 0.7
+# The source team's daily job rewrites the rolling files in batches (observed 2026-10-06:
+# one TVS file went 9,000 -> 114,000 -> 177,077 rows over ~45 minutes, bumping
+# modifiedTime every few minutes). Reading mid-rewrite captures a partial sheet, so a
+# rolling file must have been untouched for this long before its read is trusted...
+SETTLE_SECS = 300
+# ...but a run never spends more than this in total waiting on files that won't settle.
+SETTLE_BUDGET = 1800
 
 
 # ── Auth & Drive helpers ─────────────────────────────────────────────────────
@@ -186,6 +201,110 @@ def list_folder_sheets(service):
         if not page_token:
             break
     return results
+
+
+# ── Rolling source files ─────────────────────────────────────────────────────
+# The source team keeps three generations of each file live and edits them every
+# day, rotating the names at each month boundary:
+#
+#   "<base>"                                -> current month    (T)
+#   "<base> - Previous Month"               -> one month back   (T-1)
+#   "<base> - Previous to Previous Month"   -> two months back  (T-2)
+#
+# Anything older gets a dated name ("... - Aug'26") and is static. The rolling
+# files are edited in place — by scripts that can be mid-write when we read, and
+# sometimes by formulas that don't reliably bump Drive's modifiedTime — so the
+# modifiedTime check used to skip untouched files can't be trusted for them.
+# They're re-read on EVERY run (scheduled, or the dashboard's Refresh button).
+#
+# File IDs are NOT stable per role: at each rollover the automation copies the
+# oldest month into a brand-new file, overwrites "Previous Month" with the month
+# that just ended, and clears the current file for the new month. So rolling files
+# are identified by their *current name*, never by ID.
+ROLLING_BASES = ("TVS CPS Triggered LD LMS Status", "Bike CPS Triggered LD LMS Status")
+ROLLING_SUFFIX_ROLE = {
+    "":                              "T",
+    " - Previous Month":             "T-1",
+    " - Previous to Previous Month": "T-2",
+}
+
+
+def _norm_name(s):
+    """Case/whitespace/dash-variant-insensitive form of a Drive file name."""
+    s = re.sub(r"[‐-―−]", "-", s or "")
+    return re.sub(r"\s+", " ", s).strip().casefold()
+
+
+_ROLLING_BY_NAME = {
+    _norm_name(base + suffix): (base.split()[0], role)
+    for base in ROLLING_BASES for suffix, role in ROLLING_SUFFIX_ROLE.items()
+}
+
+
+def rolling_role(name):
+    """('TVS'|'Bike', 'T'|'T-1'|'T-2') if `name` is one of the rolling files, else None."""
+    return _ROLLING_BY_NAME.get(_norm_name(name))
+
+
+def expected_rolling_names():
+    return [base + suffix for base in ROLLING_BASES for suffix in ROLLING_SUFFIX_ROLE]
+
+
+def _now_utc():
+    return datetime.now(timezone.utc)
+
+
+def _parse_drive_time(s):
+    """Drive's RFC 3339 modifiedTime ('2026-10-06T08:20:41.507Z') -> aware datetime."""
+    return datetime.strptime(s[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+
+
+def current_modified_time(drive_svc, file_id):
+    return drive_svc.files().get(fileId=file_id, fields="modifiedTime").execute()["modifiedTime"]
+
+
+def wait_until_settled(drive_svc, file_id, name, listed_mtime, budget):
+    """Block until the file has been untouched for SETTLE_SECS (or the run's shared
+    wait budget runs out). Returns (latest modifiedTime, settled).
+
+    The listing at the start of the run can be minutes stale by the time we reach a
+    file, so this always re-asks Drive for the live modifiedTime first. A failed
+    metadata lookup never blocks the run — we just carry on with what we have.
+    """
+    mtime, announced = listed_mtime, False
+    while True:
+        try:
+            mtime = current_modified_time(drive_svc, file_id)
+        except Exception as e:
+            print(f"    (couldn't re-check modifiedTime: {e})")
+            return mtime, True
+        age = (_now_utc() - _parse_drive_time(mtime)).total_seconds()
+        if age >= SETTLE_SECS:
+            return mtime, True
+        if age < -120:
+            # "Modified in the future" can only be clock skew, not an active writer —
+            # don't burn the wait budget on it.
+            print(f"    (modifiedTime is {int(-age)}s ahead of this machine's clock — ignoring the skew)")
+            return mtime, True
+        pause = min(SETTLE_SECS - age + 5, 60)
+        if budget["left"] < pause:
+            return mtime, False
+        if not announced:
+            print(f"    … modified {int(age)}s ago — the source job is probably still writing it; "
+                  f"waiting for it to go quiet")
+            announced = True
+        time.sleep(pause)
+        budget["left"] -= pause
+
+
+def read_source_file(drive_svc, sheets_svc, file_id, name):
+    """All brand rows in one Drive file: ZIP export first, Sheets API when it's too big."""
+    try:
+        zip_buf = export_as_zip(drive_svc, file_id)
+        return parse_zip_rows(zip_buf, name, file_id=file_id)
+    except FileTooLargeError:
+        print(f"    File too large for ZIP export — using Sheets API v4 fallback…")
+        return export_via_sheets_api(sheets_svc, file_id, name)
 
 
 class FileTooLargeError(Exception):
@@ -1240,13 +1359,15 @@ def main():
             manifest = json.load(f)
         manifest.setdefault("version", 0)
 
-    # On the 1st of every month: force a full re-download so the renamed
-    # old-month file (e.g. "May'26") and the newly created current-month
-    # file are both picked up with fresh, complete data.
+    # (This used to wipe manifest.processed on the 1st of every month to force a full
+    # re-download of every file. Month rollovers are now handled precisely instead:
+    # the rolling T / T-1 / T-2 files are re-read on every run, a renamed file is
+    # re-read because its name changed, and files that vanish from the folder are
+    # dropped as orphans — see the loop below. The blanket wipe re-read ALL ~29
+    # files on every run that day (~40 min each, queued behind each other), and
+    # because it also emptied the manifest it skipped the purge of each file's
+    # old rows, so stale copies survived alongside the fresh ones.)
     now_ist = datetime.now(IST)
-    if now_ist.day == 1:
-        print(f"📅 1st of month ({now_ist.strftime('%b %Y')}) — clearing manifest.processed to force full refresh.")
-        manifest["processed"] = {}
 
     # Load existing leads (gzip-compressed to keep repo size manageable)
     all_rows = []
@@ -1266,8 +1387,61 @@ def main():
     files = list_folder_sheets(drive_svc)
     print(f"Found {len(files)} Sheets files in Drive folder")
 
+    # Things worth a human's attention this run; shown in the dashboard header.
+    warnings = []
+    def warn(msg):
+        print(f"  ⚠ {msg}")
+        warnings.append(msg)
+
+    # ── Rolling-file roster ────────────────────────────────────────────────────
+    # All six (TVS/Bike × T/T-1/T-2) are read every run, so say up front which
+    # ones exist, and flag any that don't — a rename we haven't been told about
+    # would otherwise just quietly stop being tracked as "rolling".
+    by_norm = {}
+    for f in files:
+        if rolling_role(f["name"]):
+            by_norm.setdefault(_norm_name(f["name"]), []).append(f)
+    print("Rolling files (re-read on every run):")
+    for nm in expected_rolling_names():
+        found = by_norm.get(_norm_name(nm), [])
+        print(f"    {'✓' if found else '✗'} {nm}" + (f"  [{len(found)} files with this name]" if len(found) > 1 else ""))
+        if not found:
+            warn(f"expected file not found in the Drive folder: '{nm}'")
+        elif len(found) > 1:
+            warn(f"{len(found)} files are all named '{nm}' — all of them are read; worth checking the folder")
+
+    # ── Orphans ────────────────────────────────────────────────────────────────
+    # Files we ingested earlier that are no longer in the folder (deleted, trashed
+    # or moved — e.g. the temporary dated copies the source automation makes and
+    # removes around each month rollover). Their rows would otherwise sit in the
+    # cache forever as ghost copies of leads, shadowing the live files whenever
+    # those change. Only IDs recorded in the manifest count, so rows with no
+    # _file_id (very old ingests) are never touched, and a guard refuses to act if
+    # an implausible share of files "vanished" at once (a listing glitch, not
+    # real deletions) — they'd just be re-read next run if they reappear.
+    drive_ids = {f["id"] for f in files}
+    orphan_ids = [i for i in manifest["processed"] if i not in drive_ids]
+    if orphan_ids:
+        tracked = len(manifest["processed"])
+        if not files or len(orphan_ids) > max(3, tracked // 4):
+            warn(f"{len(orphan_ids)} of {tracked} tracked files are missing from the Drive listing — "
+                 f"too many to be real deletions, so leaving them alone this run")
+            orphan_ids = []
+        else:
+            for i in orphan_ids:
+                o = manifest["processed"].pop(i)
+                print(f"  🗑 no longer in the Drive folder: {o.get('name')} ({o.get('rows', 0):,} rows) — removing its rows")
+
     new_file_count = 0
     new_row_count = 0
+    fresh_rows = []     # rows read this run; appended after the stale copies are dropped
+    fresh_ids = set()   # IDs of files successfully (re-)read this run
+    run_info = {}       # fid -> {"checked": str, "ok": bool, "settled": bool}  for the roster
+    settle_budget = {"left": SETTLE_BUDGET}
+
+    # Most recently modified last: the files a source job is still writing get the
+    # longest possible head start while we read everything else.
+    files = sorted(files, key=lambda x: x["modifiedTime"])
 
     for f in files:
         fid  = f["id"]
@@ -1275,48 +1449,121 @@ def main():
         mtime = f["modifiedTime"]
 
         prev = manifest["processed"].get(fid, {})
-        if prev.get("modifiedTime") == mtime:
+        role = rolling_role(name)                       # ("TVS"|"Bike", "T"|"T-1"|"T-2") or None
+        renamed = bool(prev) and prev.get("name") != name
+        if prev.get("modifiedTime") == mtime and not role and not renamed:
             print(f"  ✓ unchanged: {name}")
             continue
 
-        print(f"  ↓ processing: {name}  (modified {mtime[:10]})")
-        try:
-            zip_buf = export_as_zip(drive_svc, fid)
-            new_rows = parse_zip_rows(zip_buf, name, file_id=fid)
-        except FileTooLargeError:
-            print(f"    File too large for ZIP export — using Sheets API v4 fallback…")
+        why = (f"rolling {role[1]} — re-read every run" if role
+               else "renamed since last run" if renamed
+               else f"modified {mtime[:10]}")
+        print(f"  ↓ processing: {name}  ({why})")
+        if role:
+            run_info[fid] = {"checked": None, "ok": False, "settled": True}
+
+        # Read it. For a rolling file, first make sure the source job isn't mid-write,
+        # and afterwards that it didn't start writing while we were reading (a read
+        # that overlapped a write can be a torn mix of old and new).
+        settled, new_rows, read_err = True, None, None
+        for attempt in range(3 if role else 1):
+            if role:
+                mtime, settled = wait_until_settled(drive_svc, fid, name, mtime, settle_budget)
             try:
-                new_rows = export_via_sheets_api(sheets_svc, fid, name)
-            except Exception as e2:
-                print(f"    ERROR (Sheets API fallback) for {name}: {e2}")
-                continue
-        except Exception as e:
-            print(f"    ERROR exporting {name}: {e}")
+                new_rows = read_source_file(drive_svc, sheets_svc, fid, name)
+            except Exception as e:
+                read_err = e
+                break
+            if not role:
+                break
+            try:
+                after = current_modified_time(drive_svc, fid)
+            except Exception:
+                break
+            if after == mtime:
+                break
+            print(f"    modified while it was being read ({mtime[11:19]} → {after[11:19]} UTC)"
+                  + (" — reading it again" if attempt < 2 else ""))
+            mtime, settled = after, False
+        if read_err is not None:
+            warn(f"{name}: could not be read this run ({read_err}) — keeping the last successful read")
             continue
+        if role and not settled:
+            warn(f"{name}: was still being modified by the source job when it was read, so these "
+                 f"figures may be a partial snapshot — the next refresh will pick up the finished file")
+        if role:
+            run_info[fid]["settled"] = settled
+
+        prev_rows = prev.get("rows", 0)
+        top_month = (Counter(r.get("Lead_Month") for r in new_rows).most_common(1) or [(None, 0)])[0][0]
+        checked = datetime.now(IST).strftime("%d %b %H:%M")
 
         if not new_rows:
+            if prev_rows >= EMPTY_GUARD_ROWS:
+                # A file that held thousands of rows a run ago and reads as empty now is
+                # far more likely mid-write (or its headers changed) than genuinely wiped.
+                # Keep what we have and leave the manifest alone so it's retried.
+                warn(f"{name}: read 0 rows but held {prev_rows:,} on the last read — treating it as a "
+                     f"bad/mid-write read and keeping the existing rows")
+                continue
             print(f"    (no brand rows found)")
-            manifest["processed"][fid] = {"name": name, "modifiedTime": mtime, "rows": 0}
+            manifest["processed"][fid] = {"name": name, "modifiedTime": mtime, "rows": 0,
+                                          "top_month": None, "checked": checked}
+            fresh_ids.add(fid)      # drop any leftover rows from an earlier, fuller version
+            if role:
+                run_info[fid].update(checked=checked, ok=True)
             continue
 
-        # Purge any previously-stored rows from this file before appending fresh ones.
-        # This prevents stale rows from accumulating when a Drive file is updated.
-        if fid in manifest["processed"] and manifest["processed"][fid].get("rows", 0) > 0:
-            before = len(all_rows)
-            all_rows = [r for r in all_rows if r.get("_file_id") != fid]
-            purged = before - len(all_rows)
-            if purged:
-                print(f"    purged {purged:,} stale rows from previous version of this file")
+        n = len(new_rows)
+        if prev_rows and n < prev_rows * SHRINK_WARN_RATIO and prev.get("top_month") in (None, top_month):
+            warn(f"{name}: shrank from {prev_rows:,} to {n:,} rows ({n / prev_rows:.0%}) since the last read")
+        if role and n >= 20000 and n % 10000 == 0:
+            warn(f"{name}: has exactly {n:,} rows — a suspiciously round number, which usually means a "
+                 f"partially written or truncated sheet")
 
-        all_rows.extend(new_rows)
+        fresh_rows.extend(new_rows)
+        fresh_ids.add(fid)
         manifest["processed"][fid] = {
             "name": name,
             "modifiedTime": mtime,
-            "rows": len(new_rows),
+            "rows": n,
+            "top_month": top_month,
+            "checked": checked,
         }
+        if role:
+            run_info[fid].update(checked=checked, ok=True)
         new_file_count += 1
-        new_row_count += len(new_rows)
-        print(f"    → {len(new_rows):,} rows added")
+        new_row_count += n
+        print(f"    → {n:,} rows read" + (f"  (mostly {top_month})" if top_month else ""))
+
+    # Swap in the fresh reads. Every previously-cached row tagged with a file we just
+    # re-read (or one that left the folder) is dropped first, unconditionally — not
+    # only when the manifest remembers a non-zero row count — so a file's old rows can
+    # never survive alongside its new ones.
+    drop_ids = fresh_ids | set(orphan_ids)
+    if drop_ids:
+        before = len(all_rows)
+        all_rows = [r for r in all_rows if r.get("_file_id") not in drop_ids]
+        print(f"\nDropped {before - len(all_rows):,} cached rows from {len(fresh_ids)} re-read "
+              f"file(s)" + (f" and {len(orphan_ids)} removed file(s)" if orphan_ids else ""))
+    all_rows.extend(fresh_rows)
+
+    # Roster for the dashboard header: what each rolling file looked like this run.
+    role_order = {"T": 0, "T-1": 1, "T-2": 2}
+    roster = []
+    for f in files:
+        role = rolling_role(f["name"])
+        if not role:
+            continue
+        ent = manifest["processed"].get(f["id"], {})
+        info = run_info.get(f["id"], {})
+        roster.append({
+            "brand": role[0], "role": role[1], "file": f["name"],
+            "month": ent.get("top_month"), "rows": ent.get("rows", 0),
+            "modified": f["modifiedTime"], "checked": info.get("checked") or ent.get("checked"),
+            "ok": bool(info.get("ok")), "settled": info.get("settled", True),
+        })
+    roster.sort(key=lambda r: (r["brand"], role_order.get(r["role"], 9)))
 
     if new_file_count == 0 and new_row_count == 0:
         print("\nNo new Drive files — rebuilding aggregations from cached leads.")
@@ -1352,6 +1599,15 @@ def main():
     print("Building aggregations...")
     dash = build_aggregations(all_rows, model_to_bu=model_to_bu, oem_data=oem_data)
     print(f"Total: {dash['total']:,} | Brands: {list(dash['by_brand'].keys())}")
+
+    # What this run read from the rolling source files, and anything that looked off —
+    # shown in the dashboard header so it's visible without opening the Actions log.
+    dash["source_files"] = roster
+    dash["source_warnings"] = warnings
+    if warnings:
+        print(f"\n⚠ {len(warnings)} source warning(s) this run:")
+        for w in warnings:
+            print(f"    - {w}")
 
     if oem_data:
         dash["oem_data"] = oem_data
