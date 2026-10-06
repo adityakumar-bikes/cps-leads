@@ -141,6 +141,12 @@ MONTH_ORDER = [
 # Months to exclude from all aggregations and dashboard output
 SKIP_MONTHS = {"Mar'2025"}
 
+# The Ask vs Actual tab needs Actual leads cut by State / Model / BU / Source and by DAY, all at
+# once, and none of the other pre-aggregated cross-sections in the dashboard data can answer
+# that exactly. So the most recent months are also kept as one compact cube of counts per
+# (model, state, medium, lead month, lead date) -- see `ask_cube` in build_aggregations().
+ASK_CUBE_MONTHS = 8
+
 # A file that held at least this many rows on its last read but reads as completely
 # empty now is treated as a bad/mid-write read (its existing rows are kept).
 EMPTY_GUARD_ROWS = 1000
@@ -1127,6 +1133,17 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
 
     months_seen = set()
 
+    # Months that get the full (model, state, medium, month, date) cube: the most recent
+    # ASK_CUBE_MONTHS that actually have leads (chosen by Lead_Month, so a month's cube always
+    # reconciles to that month's totals even for the few rows dated outside the month).
+    _cube_month_rank = {m: i for i, m in enumerate(MONTH_ORDER)}
+    _cube_present = sorted(
+        {m for m in (str(r.get("Lead_Month", "") or "").strip() for r in all_rows)
+         if m in _cube_month_rank and m not in SKIP_MONTHS},
+        key=_cube_month_rank.get)
+    ask_cube_months = set(_cube_present[-ASK_CUBE_MONTHS:])
+    ask_cube = defaultdict(int)   # (model, state, medium, month, "YYYY-MM-DD" or "") -> leads
+
     def parse_lead_date(raw):
         """Parse date string in either yyyy-mm-dd or yyyy-Mon-dd format."""
         if not raw:
@@ -1230,6 +1247,8 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
             inc(bu_pri_date[bu][pri], date_str)
             inc(model_date[model], date_str)
             inc(model_medium_date[model][medium], date_str)
+        if month in ask_cube_months:
+            ask_cube[(model, state, medium, month, date_str if lead_dt else "")] += 1
         inc(state_bu_month[state][bu], month)
         inc(bu_dealer[bu],  dealer)
         inc(bu_lt[bu],      lt)
@@ -1245,6 +1264,45 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
         return dict(sorted(d.items(), key=lambda x: -x[1]))
 
     brands_all = sorted(brands_set)
+
+    # Flatten the Ask cube. Dimensions are dictionary-encoded, and cells that share
+    # (model, state, medium, month) are stored as one group:
+    #     rows = [model, state, medium, month, k, (date delta, leads) x k, ...repeated per group]
+    # with the group's dates ascending and delta-coded from index 0 (date index 0 is "", rows with no
+    # parseable date, so month totals still reconcile). Same information as one row per cell
+    # at roughly a third of the size (3.3 MB instead of 9.5 MB for ~600K cells on 2026-10-06).
+    ask_cube_out = None
+    if ask_cube:
+        _keys = sorted(ask_cube)
+        _models  = sorted({k[0] for k in _keys})
+        _states  = sorted({k[1] for k in _keys})
+        _media   = sorted({k[2] for k in _keys})
+        _months  = sorted({k[3] for k in _keys}, key=lambda m: month_key.get(m, 999))
+        _dates   = [""] + sorted({k[4] for k in _keys if k[4]})
+        _mi = {v: i for i, v in enumerate(_models)}; _si = {v: i for i, v in enumerate(_states)}
+        _ei = {v: i for i, v in enumerate(_media)};  _oi = {v: i for i, v in enumerate(_months)}
+        _di = {v: i for i, v in enumerate(_dates)}
+        _groups = {}
+        for k in _keys:   # sorted, so each group's cells are adjacent and its dates ascend
+            _groups.setdefault((_mi[k[0]], _si[k[1]], _ei[k[2]], _oi[k[3]]), []).append((_di[k[4]], ask_cube[k]))
+        _flat = []
+        for _g, _cells in _groups.items():
+            _flat.extend(_g)
+            _flat.append(len(_cells))
+            _prev = 0
+            for _d, _n in _cells:
+                _flat.extend((_d - _prev, _n))
+                _prev = _d
+        ask_cube_out = {"models": _models, "states": _states, "mediums": _media,
+                        "months": _months, "dates": _dates, "rows": _flat}
+        # Cheap self-check: each month's cube must add up to that month's dashboard total.
+        _cube_by_month = Counter()
+        for k, n in ask_cube.items():
+            _cube_by_month[k[3]] += n
+        _bad = {m: (n, by_month.get(m, 0)) for m, n in _cube_by_month.items() if n != by_month.get(m, 0)}
+        print(f"  Ask cube: {len(_keys):,} cells over {len(_months)} months "
+              f"({_months[0]} - {_months[-1]}); " + ("reconciles with every month's total" if not _bad
+              else f"MISMATCH vs month totals (cube, total): {_bad}"))
 
     # model_date trim: day-level granularity for the *entire* multi-year history would
     # balloon the embedded JSON (~30x the rows of model_month) for no real benefit — the
@@ -1318,6 +1376,7 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
                                for mo, meds in model_medium_month.items()},
         "model_date":    model_date,
         "model_medium_date": model_medium_date,
+        "ask_cube":      ask_cube_out,
         "by_bu":         srt(by_bu),
         "bu_brand":      dict(bu_brand),
         "bu_medium":     dict(bu_medium),

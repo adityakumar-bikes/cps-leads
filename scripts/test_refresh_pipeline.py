@@ -503,6 +503,70 @@ rd.read_source_file(FakeDrive(), object(), "bkT1", "x", rd.ZIP_SKIP_ROWS)
 check("boundary: exactly at the threshold -> ZIP skipped", len(ZIP_CALLS) == before + 1)
 CONTENT["bkT1"] = mk_rows("bkT1", "Bajaj", M, 1200, start=70_000_000)
 
+
+# ============ RUN 24: the Ask vs Actual cube in the dashboard data =================
+print("\n== RUN 24: ask_cube (model x state x medium x lead month x lead date) ==")
+from collections import Counter as _C
+def _cube_rows():
+    out = []
+    def add(brand, model, state, medium, month, date, k):
+        for _ in range(k):
+            n = len(out)
+            out.append({"opty_id": f"c{n:06d}", "encrypt_mobile_number": f"cm{n}", "brand": brand, "model": model,
+                        "State": state, "Medium": medium, "Lead_Month": month, "Date": date, "City": "Pune"})
+    add("TVS", "TVS Raider",  "Maharashtra", "Google",   "Oct'2026", "2026-10-01", 3)
+    add("TVS", "TVS Raider",  "Maharashtra", "Google",   "Oct'2026", "2026-10-02", 2)
+    add("TVS", "TVS Raider",  "Bihar",       "Facebook", "Oct'2026", "2026-10-01", 4)
+    add("TVS", "TVS iQube S", "Maharashtra", "Organic",  "Oct'2026", "2026-Oct-03", 5)      # the other date format
+    add("TVS", "TVS iQube S", "Maharashtra", "Organic",  "Oct'2026", "",            2)      # no parseable date
+    add("TVS", "TVS Raider",  "Maharashtra", "Google",   "Oct'2026", "2026-09-30",  1)      # Oct lead dated Sep 30
+    add("Hero","Hero Glamour","",            "Non-MS",   "Sep'2026", "2026-09-15",  6)      # blank state -> Unknown
+    add("Hero","Hero Glamour","Bihar",       "Whatsapp", "Aug'2026", "2026-08-20",  7)
+    add("Hero","Hero Glamour","Bihar",       "Whatsapp", "Jan'2026", "2026-01-20",  9)      # outside a 3-month cube
+    return out
+old_months = rd.ASK_CUBE_MONTHS
+rd.ASK_CUBE_MONTHS = 3
+dash24 = rd.build_aggregations(_cube_rows())
+cube = dash24["ask_cube"]
+rd.ASK_CUBE_MONTHS = old_months
+def _decode_cube(cube):
+    """rows = [model, state, medium, month, k, (date delta, leads) x k, ...] per group."""
+    R, out, i = cube["rows"], _C(), 0
+    while i < len(R):
+        m, s_, e, mo, k = R[i:i+5]; i += 5; d = 0
+        for _ in range(k):
+            d += R[i]
+            out[(cube["models"][m], cube["states"][s_], cube["mediums"][e], cube["months"][mo], cube["dates"][d])] += R[i+1]
+            i += 2
+    return out, i == len(R)
+dec, consumed_exactly = _decode_cube(cube)
+exp = _C({
+    ("TVS Raider", "Maharashtra", "Google", "Oct'2026", "2026-10-01"): 3,
+    ("TVS Raider", "Maharashtra", "Google", "Oct'2026", "2026-10-02"): 2,
+    ("TVS Raider", "Bihar", "Facebook", "Oct'2026", "2026-10-01"): 4,
+    ("TVS iQube S", "Maharashtra", "Organic", "Oct'2026", "2026-10-03"): 5,
+    ("TVS iQube S", "Maharashtra", "Organic", "Oct'2026", ""): 2,
+    ("TVS Raider", "Maharashtra", "Google", "Oct'2026", "2026-09-30"): 1,
+    ("Hero Glamour", "Unknown", "Non-MS", "Sep'2026", "2026-09-15"): 6,
+    ("Hero Glamour", "Bihar", "Whatsapp", "Aug'2026", "2026-08-20"): 7,
+})
+check("cube decodes to exactly the expected (model, state, medium, month, date) counts", dec == exp, (dec - exp, exp - dec))
+check("the grouped list is well-formed (decoding consumes it exactly)", consumed_exactly)
+check("only the most recent ASK_CUBE_MONTHS months are kept (Jan'2026 excluded)", cube["months"] == ["Aug'2026", "Sep'2026", "Oct'2026"], cube["months"])
+check("rows with no parseable date are kept under date '' (index 0), so month totals reconcile", cube["dates"][0] == "" and dec[("TVS iQube S", "Maharashtra", "Organic", "Oct'2026", "")] == 2)
+check("cube month totals equal the dashboard's month totals", all(sum(n for k, n in dec.items() if k[3] == m) == dash24["by_month"][m] for m in cube["months"]))
+check("an Oct lead dated Sep 30 stays in the Oct month cell (month = Lead_Month, day = Date)", dec[("TVS Raider", "Maharashtra", "Google", "Oct'2026", "2026-09-30")] == 1)
+def _all_deltas_nonneg(cube):
+    R, i = cube["rows"], 0
+    while i < len(R):
+        k = R[i+4]; i += 5
+        for _ in range(k):
+            if R[i] < 0 or R[i+1] <= 0: return False
+            i += 2
+    return True
+check("every date delta is >= 0 and every cell has leads > 0 (dates ascend within a group)", _all_deltas_nonneg(cube) and cube["dates"] == sorted(cube["dates"]))
+check("no leads at all -> ask_cube is null, not a crash", rd.build_aggregations([])["ask_cube"] is None)
+
 print(f"\n{'='*60}\n{PASS} passed, {FAIL_N} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if FAIL_N else 0)
