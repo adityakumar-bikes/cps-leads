@@ -24,15 +24,15 @@ const code = [
   // filter-aware provider (cube index, aggregation, legacy + cube providers, filter notes)
   pick('const _ASK_VARIANTS = {', "// Some brands enter a single lump 'Paid' figure"),
   pick('function _askModelDayActual(', 'function _askModelDailyTable('),
-  ';globalThis.__api={_askActuals,_askUseCube,_askNoAch,_askFilterNote,_askFilterText,_askCubeIdx,_askExtraFilters};',
+  ';globalThis.__api={_askActuals,_askUseCube,_askNoAch,_askFilterNote,_askFilterText,_askCubeIdx,_askExtraFilters,_askNoAskBrands,_askNoAskNote,_askFoldNoAsk,_askOtherGroups,_askOtherDayGroups};',
 ].join('\n');
 
 // ── synthetic data ────────────────────────────────────────────────────────────────────────
 // brand TVS: TVS iQube (Ask row folding TVS iQube / iQube S / iQube ST), TVS Raider (Ask row),
 // TVS Star City Plus (no Ask row). brand Hero: Hero Glamour (Ask row). BUs: TVS iQube* -> UB.
-const MODELS = ['Hero Glamour', 'TVS Raider', 'TVS Star City Plus', 'TVS iQube', 'TVS iQube S', 'TVS iQube ST'];
-const BRAND = {'Hero Glamour': 'Hero', 'TVS Raider': 'TVS', 'TVS Star City Plus': 'TVS', 'TVS iQube': 'TVS', 'TVS iQube S': 'TVS', 'TVS iQube ST': 'TVS'};
-const BU = {'Hero Glamour': 'Hero', 'TVS Raider': 'TVS', 'TVS Star City Plus': 'TVS', 'TVS iQube': 'UB', 'TVS iQube S': 'UB', 'TVS iQube ST': 'UB'};
+const MODELS = ['Hero Glamour', 'Hero Super Splendor XTEC', 'Hero Super Splendor', 'TVS Raider', 'TVS Star City Plus', 'TVS iQube', 'TVS iQube S', 'TVS iQube ST'];
+const BRAND = {'Hero Glamour': 'Hero', 'Hero Super Splendor XTEC': 'Hero', 'Hero Super Splendor': 'Hero', 'TVS Raider': 'TVS', 'TVS Star City Plus': 'TVS', 'TVS iQube': 'TVS', 'TVS iQube S': 'TVS', 'TVS iQube ST': 'TVS'};
+const BU = {'Hero Glamour': 'Hero', 'Hero Super Splendor XTEC': 'Hero', 'Hero Super Splendor': 'Hero', 'TVS Raider': 'TVS', 'TVS Star City Plus': 'TVS', 'TVS iQube': 'UB', 'TVS iQube S': 'UB', 'TVS iQube ST': 'UB'};
 const STATES = ['Bihar', 'Karnataka', 'Maharashtra', 'Unknown'];
 const MEDIA = ['Facebook', 'Google', 'Non-MS', 'Organic', 'Whatsapp'];
 const MONTHS = ["Sep'2026", "Oct'2026"];
@@ -72,6 +72,7 @@ const D = {
   model_bu: BU,
   model_brand: Object.fromEntries(MODELS.map((m) => [m, {[BRAND[m]]: 1}])),
   by_brand: {TVS: 1, Hero: 1},
+  brands_all: ['Hero', 'TVS'],
   brand_month: {}, brand_medium_month: {}, model_month: {}, model_medium_month: {}, model_date: {}, model_medium_date: {},
   ask_data: {
     "Oct'2026": {
@@ -109,7 +110,7 @@ const ctx = {console, D, fState: [], fBU: [], fModel: [], fMedium: [], fBrand: [
 vm.createContext(ctx);
 vm.runInContext(code, ctx);
 const A = ctx.__api;
-const setF = (f) => { ctx.fState = f.state || []; ctx.fBU = f.bu || []; ctx.fModel = f.model || []; ctx.fMedium = f.medium || []; ctx.fIMS = f.ims || ''; };
+const setF = (f) => { ctx.fBrand = f.brand || []; ctx.fState = f.state || []; ctx.fBU = f.bu || []; ctx.fModel = f.model || []; ctx.fMedium = f.medium || []; ctx.fIMS = f.ims || ''; };
 
 let pass = 0, fail = 0;
 function check(label, got, want) {
@@ -229,6 +230,43 @@ console.log('\n== months, notes ==');
   check('data without a cube (old refresh): filters are not applied and the note warns about it', [A._askUseCube("Oct'2026"), /cannot be applied/.test(A._askFilterNote("Oct'2026"))], [false, true]);
   D.ask_cube = saved;
   check('IMS appears in the filter text', (() => { ctx.fIMS = 'Y'; return A._askFilterNote("Oct'2026").includes('IMS: Y'); })(), true);
+}
+
+console.log('\n== brands with leads but no Ask row for the month (e.g. Hero in Oct) ==');
+{
+  const askOct = D.ask_data["Oct'2026"];
+  const savedHero = askOct.Hero; delete askOct.Hero;           // the Ask sheet has no Hero targets for the month
+  setF({});
+  let P = A._askActuals("Oct'2026");
+  let nb = A._askNoAskBrands(askOct, P);
+  check('Hero is found: leads but no Ask row, with its Actuals', nb.map((x) => [x.brand, x.a.total]), [['Hero', brute({}, "Oct'2026").brand.Hero.total]]);
+  setF({brand: ['TVS']});
+  check('a brand filter that excludes it hides it', A._askNoAskBrands(askOct, A._askActuals("Oct'2026")), []);
+  setF({brand: ['Hero']});
+  P = A._askActuals("Oct'2026");
+  check('a brand filter that selects it keeps it', A._askNoAskBrands(askOct, P).map((x) => x.brand), ['Hero']);
+  setF({brand: ['Hero'], state: ['Karnataka']});
+  P = A._askActuals("Oct'2026");
+  check('with a State filter its Actuals are the filtered ones (cube)', A._askNoAskBrands(askOct, P).map((x) => x.a.total), [brute({state: ['Karnataka']}, "Oct'2026").brand.Hero.total].filter((v) => v > 0));
+  setF({brand: ['Hero'], state: ['Unknown'], medium: ['Whatsapp']});
+  check('...and a brand with no leads left under the filters is not listed', A._askNoAskBrands(askOct, A._askActuals("Oct'2026")).length, brute({state: ['Unknown'], medium: ['Whatsapp']}, "Oct'2026").brand.Hero.total > 0 ? 1 : 0);
+  setF({brand: ['Hero']});
+  P = A._askActuals("Oct'2026");
+  const g = A._askOtherGroups(P, 'Hero', new Set());
+  const b0 = brute({}, "Oct'2026").model;
+  check('"Hero Super Splendor" is folded into "Hero Super Splendor XTEC" on no-Ask rows', g.map((x) => x.name).includes('Hero Super Splendor') === false && g.some((x) => x.name === 'Hero Super Splendor XTEC' && x.members.length === 2), true);
+  check('...and the folded row carries both spellings\' leads', g.find((x) => x.name === 'Hero Super Splendor XTEC').actual, b0['Hero Super Splendor XTEC'] + b0['Hero Super Splendor']);
+  check('no-Ask rows keep the order otherModels() chose (biggest first); a folded group sits where its main model was',
+        g.map((x) => x.name), [...new Set(P.otherModels('Hero', new Set()).map((m) => (m === 'Hero Super Splendor' ? 'Hero Super Splendor XTEC' : m)))]);
+  check('daily groups fold the same way', A._askOtherDayGroups(P, 'Hero', new Set(), '2026-10').map((x) => x.name).includes('Hero Super Splendor'), false);
+  check('a model whose main spelling has no row of its own is not folded away', A._askFoldNoAsk(['Hero Super Splendor']).map((x) => x.name), ['Hero Super Splendor']);
+  check('the note names the brand and its leads', /Hero<\/strong> [\d,]+ leads/.test(A._askNoAskNote("Oct'2026", A._askNoAskBrands(askOct, P), false)), true);
+  check('...and explains the scorecard treatment differently when every selected brand lacks an Ask',
+        [/Overall Scorecard/.test(A._askNoAskNote("Oct'2026", A._askNoAskBrands(askOct, P), false)), /marked as not set/.test(A._askNoAskNote("Oct'2026", A._askNoAskBrands(askOct, P), true))], [true, true]);
+  check('no such brands -> no note', A._askNoAskNote("Oct'2026", [], false), '');
+  askOct.Hero = savedHero;
+  setF({});
+  check('with the Hero Ask row present again, nothing is listed as missing', A._askNoAskBrands(askOct, A._askActuals("Oct'2026")), []);
 }
 
 console.log(`\n${'='.repeat(60)}\n${pass} passed, ${fail} failed`);
