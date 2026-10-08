@@ -7,9 +7,8 @@ on:
   # ── Automatic: runs every day at 2:15 PM IST (08:45 UTC) ────────────────
   #    On the 1st of every month an extra run fires at 8:45 PM IST (15:15 UTC)
   #    to catch new-month files created after the afternoon run.
-  schedule:
-    - cron: "45 8 * * *"       # 2:15 PM IST — daily
-    - cron: "15 15 1 * *"      # 8:45 PM IST — 1st of month only
+   schedule:
+    - cron: "0 5 * * *"        # 10:30 AM IST — daily
 
 permissions:
   contents: write   # needed to commit updated data files back to the repo
@@ -107,3 +106,19 @@ jobs:
             git push
             echo "✅ Data committed and pushed."
           fi
+     # 8. Email alert on failure only
+      - name: Notify on failure
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          secure: false
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "❌ CPS Refresh FAILED – ${{ github.run_id }}"
+          to: ${{ secrets.NOTIFY_EMAIL }}
+          from: CPS Bot <${{ secrets.MAIL_USERNAME }}>
+          body: |
+            The scheduled CPS Lead data refresh failed.
+            Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
