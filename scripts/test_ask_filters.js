@@ -126,7 +126,7 @@ const prefixOf = (month) => ({"Sep'2026": '2026-09', "Oct'2026": '2026-10'})[mon
 function brute(f, month) {
   const ok = (c) => (!f.state || f.state.includes(c[1])) && (!f.medium || f.medium.includes(c[2])) &&
                     (!f.model || f.model.includes(c[0])) && (!f.bu || f.bu.includes(BU[c[0]]));
-  const out = {brand: {}, model: {}, day: {}};
+  const out = {brand: {}, model: {}, day: {}, paid: {}};
   for (const b of ['TVS', 'Hero']) {
     const m = (pred) => sum((c) => ok(c) && BRAND[c[0]] === b && c[3] === month && pred(c));
     out.brand[b] = {total: m(() => true), paid: m((c) => c[2] === 'Google' || c[2] === 'Facebook'), org: m((c) => c[2] === 'Organic'),
@@ -134,6 +134,7 @@ function brute(f, month) {
   }
   for (const mdl of MODELS) {
     out.model[mdl] = sum((c) => ok(c) && c[0] === mdl && c[3] === month);
+    out.paid[mdl] = sum((c) => ok(c) && c[0] === mdl && c[3] === month && (c[2] === 'Google' || c[2] === 'Facebook'));
     out.day[mdl] = {};
     for (const dt of DATES.filter((d) => d.startsWith(prefixOf(month)))) out.day[mdl][dt] = sum((c) => ok(c) && c[0] === mdl && c[4] === dt);
   }
@@ -144,14 +145,15 @@ function compareAll(label, f, month) {
   setF(f);
   const P = A._askActuals(month);
   const want = brute(f, month);
-  const got = {brand: {}, model: {}, day: {}};
+  const got = {brand: {}, model: {}, day: {}, paid: {}};
   for (const b of ['TVS', 'Hero']) got.brand[b] = P.brand(b);
   for (const m of MODELS) {
     got.model[m] = P.leadModel(m);
+    got.paid[m] = P.paidOf(m);
     got.day[m] = {};
     for (const dt of DATES.filter((d) => d.startsWith(prefixOf(month)))) got.day[m][dt] = P.day([m], dt);
   }
-  check(label + ' — brand totals, model totals and every day match a brute-force count', got, want);
+  check(label + ' — brand totals, model totals, paid (Google+Facebook) and every day match a brute-force count', got, want);
   return P;
 }
 
@@ -267,6 +269,38 @@ console.log('\n== brands with leads but no Ask row for the month (e.g. Hero in O
   askOct.Hero = savedHero;
   setF({});
   check('with the Hero Ask row present again, nothing is listed as missing', A._askNoAskBrands(askOct, A._askActuals("Oct'2026")), []);
+}
+
+console.log('\n== paid (Google + Facebook) Actual per model / Ask row ==');
+{
+  const paidAll = brute({}, "Oct'2026").paid;
+  setF({});
+  let P = A._askActuals("Oct'2026");
+  check('legacy path: paid per model = Google + Facebook leads', MODELS.map((m) => P.paidOf(m)), MODELS.map((m) => paidAll[m]));
+  check('an Ask row folds its variants into its paid Actual', P.askRowPaid('TVS iQube'), paidAll['TVS iQube'] + paidAll['TVS iQube S'] + paidAll['TVS iQube ST']);
+  setF({medium: ['Google', 'Organic']});
+  P = A._askActuals("Oct'2026");
+  const paidG = brute({medium: ['Google', 'Organic']}, "Oct'2026").paid;
+  check('legacy path honours the Source filter (only Google counts as paid)', MODELS.map((m) => P.paidOf(m)), MODELS.map((m) => paidG[m]));
+  setF({medium: ['Organic', 'Whatsapp']});
+  P = A._askActuals("Oct'2026");
+  check('...and no paid Actual when no paid source is selected', MODELS.map((m) => P.paidOf(m)), MODELS.map(() => 0));
+  setF({state: ['Karnataka', 'Bihar']});
+  P = A._askActuals("Oct'2026");
+  const paidS = brute({state: ['Karnataka', 'Bihar']}, "Oct'2026").paid;
+  check('cube path: paid Actual follows the State filter', MODELS.map((m) => P.paidOf(m)), MODELS.map((m) => paidS[m]));
+  check('cube path: Ask-row paid folds variants', P.askRowPaid('TVS iQube'), paidS['TVS iQube'] + paidS['TVS iQube S'] + paidS['TVS iQube ST']);
+  setF({model: ['TVS iQube S']});
+  P = A._askActuals("Oct'2026");
+  const paidM = brute({model: ['TVS iQube S']}, "Oct'2026").paid;
+  check('cube path: with a Model filter only the selected variant counts', P.askRowPaid('TVS iQube'), paidM['TVS iQube S']);
+  setF({brand: ['Hero']});
+  const askOct = D.ask_data["Oct'2026"]; const savedHero = askOct.Hero; delete askOct.Hero;
+  P = A._askActuals("Oct'2026");
+  const hg = A._askOtherGroups(P, 'Hero', new Set()).find((x) => x.name === 'Hero Super Splendor XTEC');
+  check('no-Ask groups carry the paid Actual of all folded spellings', hg.paid, paidAll['Hero Super Splendor XTEC'] + paidAll['Hero Super Splendor']);
+  askOct.Hero = savedHero;
+  setF({});
 }
 
 console.log(`\n${'='.repeat(60)}\n${pass} passed, ${fail} failed`);
