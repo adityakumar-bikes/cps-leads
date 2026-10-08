@@ -999,6 +999,9 @@ def load_ask_data(sheets_svc):
             'Bajaj Chetak 2501': 'Bajaj Chetak C2501',
             'Jawa 42FJ': 'Jawa 42 FJ',
             'Hero Super Splendor': 'Hero Super Splendor XTEC',
+            # The Ask sheet says 'Hero Karizma'; the lead data (Hero's only Karizma) says 'Hero Karizma XMR'.
+            # Unmapped, the Ask row showed Actual 0 / 0% while the real leads sat on a 'no ask' row.
+            'Hero Karizma': 'Hero Karizma XMR',
             'BSA Scrambler': 'BSA Scrambler 650',
         }
         # OEM column values → dashboard brand names
