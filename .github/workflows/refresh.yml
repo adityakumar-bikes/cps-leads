@@ -4,9 +4,10 @@ on:
   # ── Manual trigger (the "Refresh" button calls this) ──────────────────────
   workflow_dispatch:
 
-  # ── Automatic: runs every day at 10:30 AM IST (05:00 UTC) ────────────────
+  # ── Automatic: fires at 18:00 UTC (11:30 PM IST) so even with GitHub's
+  #    worst observed ~9-hour cron delay, data is ready by 10:30 AM IST ─────
   schedule:
-    - cron: "0 5 * * *"        # 10:30 AM IST — daily
+    - cron: "0 18 * * *"       # 11:30 PM IST — ready by 10:30 AM IST next day
 
 permissions:
   contents: write   # needed to commit updated data files back to the repo
