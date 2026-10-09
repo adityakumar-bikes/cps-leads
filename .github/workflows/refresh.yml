@@ -4,10 +4,11 @@ on:
   # ── Manual trigger (the "Refresh" button calls this) ──────────────────────
   workflow_dispatch:
 
-  # ── Automatic: fires at 18:00 UTC (11:30 PM IST) so even with GitHub's
-  #    worst observed ~9-hour cron delay, data is ready by 10:30 AM IST ─────
+  # ── Automatic: primary trigger is cron-job.org at 05:00 UTC (10:30 AM IST)
+  #    This GitHub schedule is a backup — GitHub's free-tier cron fires
+  #    5–9 hours late so it acts as a safety net, not the primary trigger ────
   schedule:
-    - cron: "0 18 * * *"       # 11:30 PM IST — ready by 10:30 AM IST next day
+    - cron: "0 5 * * *"        # 10:30 AM IST — backup (primary = cron-job.org)
 
 permissions:
   contents: write   # needed to commit updated data files back to the repo
