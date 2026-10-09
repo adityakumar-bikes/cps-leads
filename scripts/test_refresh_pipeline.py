@@ -567,6 +567,51 @@ def _all_deltas_nonneg(cube):
 check("every date delta is >= 0 and every cell has leads > 0 (dates ascend within a group)", _all_deltas_nonneg(cube) and cube["dates"] == sorted(cube["dates"]))
 check("no leads at all -> ask_cube is null, not a crash", rd.build_aggregations([])["ask_cube"] is None)
 
+
+# ============ RUN 25: Jawa counts = unique phone numbers per month =================
+print("\n== RUN 25: unique_phone_per_month (Jawa = Jawa + Yezdi + BSA, one lead per phone per month) ==")
+def _jw(opty, mob, month, date, model="Jawa 42", brand="Jawa", **kw):
+    r = {"opty_id": opty, "encrypt_mobile_number": mob, "brand": brand, "model": model, "Lead_Month": month, "Date": date,
+         "Medium": "Organic", "State": "Delhi", "City": "Delhi"}
+    r.update(kw); return r
+base = [
+    _jw("o1", "pA", "Oct'2026", "2026-10-05", "Jawa 42", Medium="Google"),
+    _jw("o2", "pA", "Oct'2026", "2026-10-02", "Yezdi Roadster", Medium="Facebook"),     # same person, other sub-brand, EARLIER
+    _jw("o3", "pA", "Oct'2026", "2026-10-09", "BSA Gold Star"),                          # ...and a third enquiry
+    _jw("o4", "pA", "Sep'2026", "2026-09-30", "Jawa 42"),                                # same person, previous month -> separate lead
+    _jw("o5", "pB", "Oct'2026", "2026-10-03"),
+    _jw("o6", "", "Oct'2026", "2026-10-03"), _jw("o7", "", "Oct'2026", "2026-10-03"),    # no phone: nothing to match on, both stay
+    _jw("t1", "pA", "Oct'2026", "2026-10-02", "TVS Raider", brand="TVS"),                # other brands untouched even if same phone
+    _jw("t2", "pA", "Oct'2026", "2026-10-02", "TVS Raider", brand="TVS"),
+]
+st = {}
+kept = rd.unique_phone_per_month(base, stats=st)
+ids = sorted(r["opty_id"] for r in kept)
+check("one Jawa lead per phone per month: pA keeps only the earliest Oct enquiry (o2, a Yezdi)", [i for i in ids if i in ("o1", "o2", "o3")] == ["o2"], ids)
+check("the same phone in another month is a separate lead (o4 kept)", "o4" in ids)
+check("different phone (pB) kept", "o5" in ids)
+check("rows with no phone number all pass through", "o6" in ids and "o7" in ids)
+check("other brands are untouched, duplicates included", "t1" in ids and "t2" in ids)
+check("exactly 2 repeat-phone leads left out, both in Oct'2026", sum(st["by_month"].values()) == 2 and st["by_month"] == {"Oct'2026": 2}, st)
+check("the input list is not modified (the cache keeps every distinct lead)", len(base) == 9 and [r["opty_id"] for r in base][:3] == ["o1", "o2", "o3"])
+import random as _rnd
+shuffled_ok = True
+for seed in range(20):
+    b2 = base[:]; _rnd.Random(seed).shuffle(b2)
+    shuffled_ok &= sorted(r["opty_id"] for r in rd.unique_phone_per_month(b2)) == ids
+check("which row survives does not depend on input order (20 shuffles)", shuffled_ok)
+tie = rd.unique_phone_per_month([_jw("o9", "pC", "Oct'2026", "2026-10-04"), _jw("o8", "pC", "Oct'2026", "2026-10-04")])
+check("same date -> lowest opty_id wins", [r["opty_id"] for r in tie] == ["o8"], tie)
+nd = rd.unique_phone_per_month([_jw("o1", "pD", "Oct'2026", ""), _jw("o2", "pD", "Oct'2026", "2026-Oct-07")])
+check("a parseable date beats a missing one (and '2026-Oct-07' style dates parse)", [r["opty_id"] for r in nd] == ["o2"], nd)
+check("a 'Mon' style date sorts correctly against ISO dates", [r["opty_id"] for r in rd.unique_phone_per_month([_jw("a", "pE", "Oct'2026", "2026-10-09"), _jw("b", "pE", "Oct'2026", "2026-Oct-03")])] == ["b"])
+check("brands= overrides the default set (TVS dedup on request: its 2 same-phone rows collapse to 1, Jawa untouched)", len(rd.unique_phone_per_month(base, brands={"TVS"})) == 8, len(rd.unique_phone_per_month(base, brands={"TVS"})))
+check("empty input", rd.unique_phone_per_month([]) == [])
+# end to end through the aggregation: Jawa total counts people, not enquiries
+d25 = rd.build_aggregations(kept)
+check("dashboard Jawa total = unique phone-months (pA Oct, pA Sep, pB Oct, 2 no-phone rows) = 5", d25["by_brand"]["Jawa"] == 5, d25["by_brand"])
+check("...and TVS keeps both of its repeat-phone rows", d25["by_brand"]["TVS"] == 2)
+
 print(f"\n{'='*60}\n{PASS} passed, {FAIL_N} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if FAIL_N else 0)

@@ -680,6 +680,67 @@ def deduplicate(rows):
     return opty_out + nopty_out
 
 
+# ── Unique-people counting for selected brands ───────────────────────────────────────────
+# Everywhere else a "lead" is a CRM opportunity (opty_id): the same customer enquiring twice in
+# a month is two leads (see deduplicate() above). For the brands below the business counts
+# PEOPLE instead — at most ONE lead per encrypted mobile number per month — so a customer who
+# enquires repeatedly, or about several of the group's models, counts once.
+# "Jawa" is a single brand in the data that covers Jawa, Yezdi and BSA (see BRAND_NORMALIZE), so
+# the rule spans all three: someone who asked about a Jawa and a Yezdi in the same month is one lead.
+UNIQUE_PHONE_BRANDS = frozenset({"Jawa"})
+
+
+def _date_sort_key(raw):
+    """'YYYY-MM-DD' for a parseable lead Date ('2026-10-03' or '2026-Oct-03'); '9999' (sorts last) if not."""
+    raw = (raw or "").strip()
+    if len(raw) >= 10 and raw[4] == "-" and raw[7] == "-" and raw[:4].isdigit() and raw[5:7].isdigit() and raw[8:10].isdigit():
+        return raw[:10]
+    try:
+        return datetime.strptime(raw, "%Y-%b-%d").strftime("%Y-%m-%d")
+    except ValueError:
+        return "9999"
+
+
+def unique_phone_per_month(rows, brands=None, stats=None):
+    """
+    Rows of `brands` (default UNIQUE_PHONE_BRANDS) reduced to one lead per (brand, encrypt_mobile_number,
+    Lead_Month) — the month the dashboard counts the lead in. The survivor is the person's FIRST enquiry
+    of the month (earliest Date, then lowest opty_id), so which row represents them — and therefore
+    its source / model / state / dealer — never depends on the order files were loaded in. Rows of other
+    brands, and rows with no mobile number (nothing to match on), pass through untouched.
+
+    Returns a NEW list; `rows` is not modified, so the cache can keep every distinct lead and this
+    rule can be changed later without re-reading old files. If `stats` is a dict it receives
+    {"by_month": Counter of the rows left out, per Lead_Month}.
+    """
+    brands = UNIQUE_PHONE_BRANDS if brands is None else frozenset(brands)
+    best = {}   # (brand, mobile, month) -> (date key, opty_id, row index) of the earliest enquiry
+    for i, r in enumerate(rows):
+        if r.get("brand") not in brands:
+            continue
+        mob = (r.get("encrypt_mobile_number") or "").strip()
+        if not mob:
+            continue
+        key = (r["brand"], mob, (r.get("Lead_Month") or "").strip())
+        cand = (_date_sort_key(r.get("Date")), r.get("opty_id") or "", i)
+        cur = best.get(key)
+        if cur is None or cand < cur:
+            best[key] = cand
+    out, left_out = [], Counter()
+    for i, r in enumerate(rows):
+        if r.get("brand") in brands:
+            mob = (r.get("encrypt_mobile_number") or "").strip()
+            if mob:
+                key = (r["brand"], mob, (r.get("Lead_Month") or "").strip())
+                if best[key][2] != i:
+                    left_out[key[2]] += 1
+                    continue
+        out.append(r)
+    if stats is not None:
+        stats["by_month"] = left_out
+    return out
+
+
 # ── BU Mapping ────────────────────────────────────────────────────────────────
 
 # Canonical BU names — any key (case-insensitive) maps to the value
@@ -1729,7 +1790,15 @@ def main():
     # Load OEM data before aggregations so bu_pri_date can use city→priority mapping
     oem_data = load_oem_data(REPO_ROOT)
     print("Building aggregations...")
-    dash = build_aggregations(all_rows, model_to_bu=model_to_bu, oem_data=oem_data)
+    # Counts for UNIQUE_PHONE_BRANDS are by unique mobile number per month. That is applied to what the
+    # dashboard counts, not to the cache saved above, which keeps every distinct lead.
+    up_stats = {}
+    agg_rows = unique_phone_per_month(all_rows, stats=up_stats)
+    left_out = len(all_rows) - len(agg_rows)
+    print(f"Unique-phone rule ({', '.join(sorted(UNIQUE_PHONE_BRANDS))}): {left_out:,} repeat-phone leads left out of the counts")
+    dash = build_aggregations(agg_rows, model_to_bu=model_to_bu, oem_data=oem_data)
+    dash["unique_phone"] = {"brands": sorted(UNIQUE_PHONE_BRANDS), "left_out": left_out,
+                            "left_out_by_month": {m: n for m, n in sorted(up_stats.get("by_month", {}).items())}}
     print(f"Total: {dash['total']:,} | Brands: {list(dash['by_brand'].keys())}")
 
     # What this run read from the rolling source files, and anything that looked off —
