@@ -3020,10 +3020,9 @@ function _askActualsLegacy(month){
     brand(b){
       const bm=D.brand_medium_month?.[b]||{};
       const tot=!_hasF(fMedium)?(D.brand_month?.[b]?.[month]||0):fMedium.reduce((s,m)=>s+(bm[m]?.[month]||0),0);
-      const paidM=_hasF(fMedium)?fMedium.filter(m=>m==='Google'||m==='Facebook'):['Google','Facebook'];
-      const paid=paidM.reduce((s,m)=>s+(bm[m]?.[month]||0),0);
       const one=(name)=>(_hasF(fMedium)&&!fMedium.includes(name))?0:(bm[name]?.[month]||0);
-      return {total:tot,paid,org:one('Organic'),nonms:one('Non-MS'),wa:one('Whatsapp')};
+      const g=one('Google'),f=one('Facebook'),wa=one('Whatsapp');
+      return {total:tot,paid:g+f+wa,g,f,wa,org:one('Organic'),nonms:one('Non-MS')};
     },
     askRowVisible(){return true;},
     askRow(model){return _askModelActual(model,month);},
@@ -3033,12 +3032,14 @@ function _askActualsLegacy(month){
       if(!_hasF(fMedium))return D.model_month?.[m]?.[month]||0;
       return fMedium.reduce((s,med)=>s+(D.model_medium_month?.[m]?.[med]?.[month]||0),0);
     },
-    // paid (Google + Facebook) leads of one lead-data model, honouring the Source filter
-    paidOf(m){
-      const paidM=_hasF(fMedium)?fMedium.filter(x=>x==='Google'||x==='Facebook'):['Google','Facebook'];
-      return paidM.reduce((s,med)=>s+(D.model_medium_month?.[m]?.[med]?.[month]||0),0);
+    // Google / Facebook / CTWA / Organic leads of one lead-data model, honouring the Source filter
+    splitOf(m){
+      const one=(name)=>(_hasF(fMedium)&&!fMedium.includes(name))?0:(D.model_medium_month?.[m]?.[name]?.[month]||0);
+      return {g:one('Google'),f:one('Facebook'),wa:one('Whatsapp'),org:one('Organic')};
     },
-    askRowPaid(model){return _askResolveVariants(model,month).reduce((s,v)=>s+this.paidOf(v),0);},
+    paidOf(m){const x=this.splitOf(m);return x.g+x.f+x.wa;},
+    askRowSplit(model){return _askSumSplit(_askResolveVariants(model,month).map(v=>this.splitOf(v)));},
+    askRowPaid(model){const x=this.askRowSplit(model);return x.g+x.f+x.wa;},
     otherModels(brand,covered){return _askBrandOtherModels(brand,month,covered);},
     day(variants,dateStr){return _askModelDayActual(variants,dateStr);},
     otherDayModels(brand,covered,prefix){
@@ -3062,19 +3063,25 @@ function _askActualsCube(month){
   return {
     cube:true,
     brand(b){
-      let total=0,paid=0,org=0,nonms=0,wa=0;
+      let total=0,g=0,f=0,org=0,nonms=0,wa=0;
       for(const m of modelsOf(b)){
         const mi=X.modelIdx[m];
-        total+=sumMed(mi,c.mediums);paid+=sumMed(mi,['Google','Facebook']);
+        total+=sumMed(mi,c.mediums);g+=sumMed(mi,['Google']);f+=sumMed(mi,['Facebook']);
         org+=sumMed(mi,['Organic']);nonms+=sumMed(mi,['Non-MS']);wa+=sumMed(mi,['Whatsapp']);
       }
-      return {total,paid,org,nonms,wa};
+      return {total,paid:g+f+wa,g,f,wa,org,nonms};
     },
     askRowVisible(model){return _askResolveVariants(model,month).some(_askModelPasses);},
     askRow(model){return _askResolveVariants(model,month).reduce((s,v)=>s+lead(v),0);},
     leadModel(m){return lead(m);},
-    paidOf(m){const mi=X.modelIdx[m];return mi==null||!_askModelPasses(m)?0:sumMed(mi,['Google','Facebook']);},
-    askRowPaid(model){return _askResolveVariants(model,month).reduce((s,v)=>s+this.paidOf(v),0);},
+    splitOf(m){
+      const mi=X.modelIdx[m];
+      if(mi==null||!_askModelPasses(m))return {g:0,f:0,wa:0,org:0};
+      return {g:sumMed(mi,['Google']),f:sumMed(mi,['Facebook']),wa:sumMed(mi,['Whatsapp']),org:sumMed(mi,['Organic'])};
+    },
+    paidOf(m){const x=this.splitOf(m);return x.g+x.f+x.wa;},
+    askRowSplit(model){return _askSumSplit(_askResolveVariants(model,month).map(v=>this.splitOf(v)));},
+    askRowPaid(model){const x=this.askRowSplit(model);return x.g+x.f+x.wa;},
     otherModels(brand,covered){
       return modelsOf(brand).filter(m=>!covered.has(m)&&_askModelPasses(m)&&lead(m)>0)
         .sort((a,b)=>lead(b)-lead(a));
@@ -3151,11 +3158,13 @@ function _askNoAskRowsHtml(noAsk,monthEsc,totalDays,daysElapsed,pacePct,isPartia
       <td class="num">${_fmtN(x.a.total)}</td>
       ${dash}${dash}
       <td class="num">${_fmtN(x.a.paid)}</td>
+      <td class="num" style="color:var(--muted)">${_fmtN(x.a.wa)}</td>
+      <td class="num" style="color:var(--muted)">${_fmtN(x.a.g)}</td>
+      <td class="num" style="color:var(--muted)">${_fmtN(x.a.f)}</td>
       ${dash}${dash}
       <td class="num">${_fmtN(x.a.org)}</td>
       ${dash}
       <td class="num" style="color:var(--muted)">${_fmtN(x.a.nonms)}</td>
-      <td class="num" style="color:var(--muted)">${_fmtN(x.a.wa)}</td>
       ${isPartial?dash:''}
       ${dash}
     </tr>
@@ -3184,10 +3193,25 @@ function _askFoldNoAsk(models){
 function _askOtherGroups(P,brand,covered){
   // keeps the order P.otherModels() chose (biggest first), a folded group sitting where its main model was
   return _askFoldNoAsk(P.otherModels(brand,covered))
-    .map(g=>({name:g.name,members:g.members,actual:g.members.reduce((s,m)=>s+P.leadModel(m),0),paid:g.members.reduce((s,m)=>s+P.paidOf(m),0)}));
+    .map(g=>{
+      const sp=_askSumSplit(g.members.map(m=>P.splitOf(m)));
+      return {name:g.name,members:g.members,actual:g.members.reduce((s,m)=>s+P.leadModel(m),0),
+              paid:sp.g+sp.f+sp.wa,goog:sp.g,fb:sp.f,wa:sp.wa,org:sp.org};
+    });
 }
 function _askOtherDayGroups(P,brand,covered,prefix){
   return _askFoldNoAsk(P.otherDayModels(brand,covered,prefix));
+}
+
+// "Paid" on this tab = CTWA (click-to-WhatsApp: the leads whose source is WhatsApp) + Google +
+// Facebook. The Ask sheet's Paid target (Google + FB) is mostly Meta spend, and a large part of
+// that spend lands as CTWA leads — which the data records under the WhatsApp source, not Facebook —
+// so measuring Paid by Google + Facebook alone understated it (Hero Oct'26: 5.5% instead of ~26%).
+// Splits are {g: Google, f: Facebook, wa: CTWA, org: Organic}.
+function _askSumSplit(list){
+  const o={g:0,f:0,wa:0,org:0};
+  for(const x of list){o.g+=x.g;o.f+=x.f;o.wa+=x.wa;o.org+=x.org;}
+  return o;
 }
 
 // Some brands enter a single lump 'Paid' figure in the Ask sheet instead of splitting
@@ -3270,7 +3294,7 @@ function renderAsk(){
   const noAskBrands=_askNoAskBrands(askMonth,P);
   const scorecardNoAsk=!askBrands.length&&noAskBrands.length>0;
 
-  let grandAsk=0,grandAct=0,grandPaidAsk=0,grandPaidAct=0,grandOrgAsk=0,grandOrgAct=0,grandNonMSAct=0,grandWaAct=0;
+  let grandAsk=0,grandAct=0,grandPaidAsk=0,grandPaidAct=0,grandOrgAsk=0,grandOrgAct=0,grandNonMSAct=0,grandWaAct=0,grandG=0,grandF=0;
   const brandRows=[];
   for(const brand of askBrands){
     const models=askMonth[brand]||{};
@@ -3283,17 +3307,18 @@ function renderAsk(){
     const bOrgAct=act.org;
     const bNonMSAct=act.nonms;
     const bWaAct=act.wa;
+    const bG=act.g,bF=act.f;
     // Brand can appear in the Ask sheet before it has any live CPS delivery (e.g. an OEM
     // being onboarded) — that's a forward-looking placeholder, not a confirmed commitment.
     // Detect via zero ALL-TIME actual leads and keep it out of the aggregate scorecard so
     // it doesn't crush the overall ACH% for brands that are actually live.
     const askConfirmed=(D.by_brand?.[brand]||0)>0;
     if(askConfirmed){grandAsk+=ba;grandPaidAsk+=bpa;grandOrgAsk+=boa;}
-    grandAct+=bAct;grandPaidAct+=bPaidAct;grandOrgAct+=bOrgAct;grandNonMSAct+=bNonMSAct;grandWaAct+=bWaAct;
-    brandRows.push({brand,ask:ba,act:bAct,paidAsk:bpa,paidAct:bPaidAct,orgAsk:boa,orgAct:bOrgAct,nonMSAct:bNonMSAct,waAct:bWaAct,askConfirmed});
+    grandAct+=bAct;grandPaidAct+=bPaidAct;grandOrgAct+=bOrgAct;grandNonMSAct+=bNonMSAct;grandWaAct+=bWaAct;grandG+=bG;grandF+=bF;
+    brandRows.push({brand,ask:ba,act:bAct,paidAsk:bpa,paidAct:bPaidAct,orgAsk:boa,orgAct:bOrgAct,nonMSAct:bNonMSAct,waAct:bWaAct,gAct:bG,fAct:bF,askConfirmed});
   }
   // Every selected brand lacks an Ask: show their Actuals in the scorecard (Ask 'not set')
-  if(scorecardNoAsk)for(const x of noAskBrands){grandAct+=x.a.total;grandPaidAct+=x.a.paid;grandOrgAct+=x.a.org;grandNonMSAct+=x.a.nonms;grandWaAct+=x.a.wa;}
+  if(scorecardNoAsk)for(const x of noAskBrands){grandAct+=x.a.total;grandPaidAct+=x.a.paid;grandOrgAct+=x.a.org;grandNonMSAct+=x.a.nonms;grandWaAct+=x.a.wa;grandG+=x.a.g;grandF+=x.a.f;}
   brandRows.sort((a,b)=>b.ask-a.ask);
 
   let html=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap">
@@ -3318,20 +3343,27 @@ function renderAsk(){
 
   // Overall scorecard
   html+=`<div class="ctitle-row"><div class="ctitle">Overall Scorecard</div><div style="display:flex;gap:6px"><button class="exp-btn" onclick="exportAskTable('${selMonthEsc}','scorecard')">⬇ Word</button><button class="exp-btn" onclick="exportAskTableXlsx('${selMonthEsc}','scorecard')">⬇ Excel</button></div></div>
-  <div style="font-size:.76rem;color:var(--muted);margin:-4px 0 8px">Non-MS and Whatsapp have no Ask target in the source sheet — shown here so Actual always fully accounts for every lead.</div>
+  <div style="font-size:.76rem;color:var(--muted);margin:-4px 0 8px">Paid = CTWA (leads from the WhatsApp source) + Google + Facebook. Non-MS has no Ask target in the source sheet — shown here so Actual always fully accounts for every lead.</div>
   <table class="tbl" style="margin-bottom:24px"><thead><tr>
     <th>Source</th><th>Ask</th><th>Actual (MTD)</th><th>ACH%</th>
     ${isPartial?'<th>Projected Month-End</th>':''}
     <th>Status</th>
   </tr></thead><tbody>`;
 
-  for(const [label,askV,actV] of [
+  for(const [label,askV,actV,sub] of [
     ['Total Leads',grandAsk,grandAct],
-    ['Paid (Google+FB)',grandPaidAsk,grandPaidAct],
+    ['Paid (CTWA + Google + FB)',grandPaidAsk,grandPaidAct],
+    ['↳ CTWA (WhatsApp)',null,grandWaAct,1],
+    ['↳ Google',null,grandG,1],
+    ['↳ Facebook',null,grandF,1],
     ['Organic',grandOrgAsk,grandOrgAct],
-    ['Non-MS',null,grandNonMSAct],
-    ['Whatsapp',null,grandWaAct]
+    ['Non-MS',null,grandNonMSAct]
   ]){
+    if(sub){
+      // breakdown of the Paid row above: Actual only (the Ask sheet's Paid target covers all three together)
+      html+=`<tr style="font-size:.92em"><td style="padding-left:28px;color:var(--muted)">${label}</td><td class="num" style="color:var(--muted)">—</td><td class="num">${_fmtN(actV)}</td><td class="num" style="color:var(--muted)">—</td>${isPartial?'<td class="num" style="color:var(--muted)">—</td>':''}<td class="num"></td></tr>`;
+      continue;
+    }
     const hasAsk=askV!=null&&!((P.cube||scorecardNoAsk)&&!askV);   // a Model / BU filter can leave no Ask to measure against
     const achPct=!noAch&&hasAsk&&askV>0?(actV/askV*100):null;
     const projAch=!noAch&&hasAsk&&isPartial&&daysElapsed>0&&askV>0?Math.round(actV/daysElapsed*totalDays/askV*100):null;
@@ -3352,9 +3384,9 @@ function renderAsk(){
   html+=`<div class="ctitle-row"><div class="ctitle">Brand Performance</div><div style="display:flex;gap:6px"><button class="exp-btn" onclick="exportAskTable('${selMonthEsc}','brand')">⬇ Word</button><button class="exp-btn" onclick="exportAskTableXlsx('${selMonthEsc}','brand')">⬇ Excel</button></div></div>
   <table class="tbl" style="margin-bottom:24px"><thead><tr>
     <th>Brand</th><th>Ask</th><th>Actual</th><th>Total ACH%</th>
-    <th>Paid Ask</th><th>Paid Actual</th><th>Paid ACH%</th>
+    <th>Paid Ask</th><th>Paid Actual</th><th title="Click-to-WhatsApp: leads whose source is WhatsApp">CTWA</th><th>Google</th><th>FB</th><th>Paid ACH%</th>
     <th>Org Ask</th><th>Org Actual</th><th>Org ACH%</th>
-    <th>Non-MS Actual</th><th>Whatsapp Actual</th>
+    <th>Non-MS Actual</th>
     ${isPartial?'<th>Proj</th>':''}
     <th>Status</th>
   </tr></thead><tbody>`;
@@ -3371,7 +3403,7 @@ function renderAsk(){
       // single CPS lead — treat it as a not-yet-live placeholder, not a real commitment.
       html+=`<tr style="cursor:pointer" onclick="_toggleAskBrand('${rowId}','${bd.brand.replace(/'/g,"\\'")}','${selMonthEsc}',${totalDays},${daysElapsed},${pacePct})">
         <td style="font-weight:600"><span id="${rowId}-arr">▶</span> ${bd.brand}</td>
-        <td class="num" colspan="11" style="color:var(--muted);font-style:italic;text-align:center">Ask not set yet</td>
+        <td class="num" colspan="13" style="color:var(--muted);font-style:italic;text-align:center">Ask not set yet</td>
         ${isPartial?`<td class="num">—</td>`:''}
         <td class="num" style="color:var(--muted)">—</td>
       </tr>
@@ -3393,12 +3425,14 @@ function renderAsk(){
       <td class="num" style="color:${noAch?'var(--muted)':_achColor(achNum,pacePct)};font-weight:700">${_fmtP(achPct)}</td>
       <td class="num">${_fmtN(bd.paidAsk)}</td>
       <td class="num">${_fmtN(bd.paidAct)}</td>
+      <td class="num" style="color:var(--muted)">${_fmtN(bd.waAct)}</td>
+      <td class="num" style="color:var(--muted)">${_fmtN(bd.gAct)}</td>
+      <td class="num" style="color:var(--muted)">${_fmtN(bd.fAct)}</td>
       <td class="num" style="color:${noAch?'var(--muted)':_achColor(paidAchPct||0,pacePct)}">${_fmtP(paidAchPct)}</td>
       <td class="num">${_fmtN(bd.orgAsk)}</td>
       <td class="num">${_fmtN(bd.orgAct)}</td>
       <td class="num" style="color:${noAch?'var(--muted)':_achColor(orgAchPct||0,pacePct)}">${_fmtP(orgAchPct)}</td>
       <td class="num" style="color:var(--muted)">${_fmtN(bd.nonMSAct)}</td>
-      <td class="num" style="color:var(--muted)">${_fmtN(bd.waAct)}</td>
       ${isPartial?`<td class="num">${projAch||'—'}</td>`:''}
       <td class="num" style="font-size:1rem">${st}</td>
     </tr>
@@ -3590,7 +3624,7 @@ function _computeAskData(month){
   const noAskBrands=_askNoAskBrands(askMonth,P);
   const scorecardNoAsk=!askBrands.length&&noAskBrands.length>0;
 
-  let grandAsk=0,grandAct=0,grandPaidAsk=0,grandPaidAct=0,grandOrgAsk=0,grandOrgAct=0,grandNonMSAct=0,grandWaAct=0;
+  let grandAsk=0,grandAct=0,grandPaidAsk=0,grandPaidAct=0,grandOrgAsk=0,grandOrgAct=0,grandNonMSAct=0,grandWaAct=0,grandG=0,grandF=0;
   const brandRows=[];
   for(const brand of askBrands){
     const models=askMonth[brand]||{};
@@ -3598,7 +3632,7 @@ function _computeAskData(month){
     for(const [mn,v] of Object.entries(models)){if(!P.askRowVisible(mn))continue;ba+=v.t||0;bpa+=_askPaid(v);boa+=v.o||0;}
     const act=P.brand(brand);
     const bAct=act.total,bPaidAct=act.paid,bOrgAct=act.org;
-    const bNonMSAct=act.nonms,bWaAct=act.wa;
+    const bNonMSAct=act.nonms,bWaAct=act.wa,bG=act.g,bF=act.f;
     // A brand can appear in the Ask sheet before it has any live CPS delivery pipeline
     // (e.g. an OEM being onboarded) — its Ask isn't a confirmed commitment yet, just a
     // forward-looking placeholder. Detect that via zero ALL-TIME actual leads (not just
@@ -3606,10 +3640,10 @@ function _computeAskData(month){
     // target doesn't crush the overall ACH% for everyone else.
     const askConfirmed=(D.by_brand?.[brand]||0)>0;
     if(askConfirmed){grandAsk+=ba;grandPaidAsk+=bpa;grandOrgAsk+=boa;}
-    grandAct+=bAct;grandPaidAct+=bPaidAct;grandOrgAct+=bOrgAct;grandNonMSAct+=bNonMSAct;grandWaAct+=bWaAct;
-    brandRows.push({brand,models,ask:ba,act:bAct,paidAsk:bpa,paidAct:bPaidAct,orgAsk:boa,orgAct:bOrgAct,nonMSAct:bNonMSAct,waAct:bWaAct,askConfirmed});
+    grandAct+=bAct;grandPaidAct+=bPaidAct;grandOrgAct+=bOrgAct;grandNonMSAct+=bNonMSAct;grandWaAct+=bWaAct;grandG+=bG;grandF+=bF;
+    brandRows.push({brand,models,ask:ba,act:bAct,paidAsk:bpa,paidAct:bPaidAct,orgAsk:boa,orgAct:bOrgAct,nonMSAct:bNonMSAct,waAct:bWaAct,gAct:bG,fAct:bF,askConfirmed});
   }
-  if(scorecardNoAsk)for(const x of noAskBrands){grandAct+=x.a.total;grandPaidAct+=x.a.paid;grandOrgAct+=x.a.org;grandNonMSAct+=x.a.nonms;grandWaAct+=x.a.wa;}
+  if(scorecardNoAsk)for(const x of noAskBrands){grandAct+=x.a.total;grandPaidAct+=x.a.paid;grandOrgAct+=x.a.org;grandNonMSAct+=x.a.nonms;grandWaAct+=x.a.wa;grandG+=x.a.g;grandF+=x.a.f;}
   brandRows.sort((a,b)=>b.ask-a.ask);
 
   // Budget mis-allocation / under-delivery model lists (same thresholds as renderAsk())
@@ -3634,7 +3668,7 @@ function _computeAskData(month){
     underM.sort((a,b)=>b.ask-a.ask);
   }
 
-  return{month,noAch,cube:P.cube,noAskBrands,scorecardNoAsk,totalDays,daysElapsed,isPartial,pacePct,grandAsk,grandAct,grandPaidAsk,grandPaidAct,grandOrgAsk,grandOrgAct,grandNonMSAct,grandWaAct,brandRows,overM,underM};
+  return{month,noAch,cube:P.cube,noAskBrands,scorecardNoAsk,totalDays,daysElapsed,isPartial,pacePct,grandAsk,grandAct,grandPaidAsk,grandPaidAct,grandOrgAsk,grandOrgAct,grandNonMSAct,grandWaAct,grandG,grandF,brandRows,overM,underM};
 }
 
 function _askScorecardTableXml(d){
@@ -3647,7 +3681,8 @@ function _askScorecardTableXml(d){
     _dCell('Status',cw[4],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF'}),
   ]);
   const rows=[];
-  for(const[label,askV,actV]of[['Total Leads',d.grandAsk,d.grandAct],['Paid (Google+FB)',d.grandPaidAsk,d.grandPaidAct],['Organic',d.grandOrgAsk,d.grandOrgAct],['Non-MS',null,d.grandNonMSAct],['Whatsapp',null,d.grandWaAct]]){
+  for(const[label,askV,actV,sub]of[['Total Leads',d.grandAsk,d.grandAct],['Paid (CTWA + Google + FB)',d.grandPaidAsk,d.grandPaidAct],['   ↳ CTWA (WhatsApp)',null,d.grandWaAct,1],['   ↳ Google',null,d.grandG,1],['   ↳ Facebook',null,d.grandF,1],['Organic',d.grandOrgAsk,d.grandOrgAct],['Non-MS',null,d.grandNonMSAct]]){
+    if(sub){rows.push(_dRow([_dCell(label,cw[0],{color:'666666'}),_dCell('—',cw[1],{align:'right',color:'888888'}),_dCell(_fmtN(actV),cw[2],{align:'right',color:'666666'}),_dCell('—',cw[3],{align:'right',color:'888888'}),_dCell('',cw[4])]));continue;}
     const hasAsk=askV!=null&&!((d.cube||d.scorecardNoAsk)&&!askV);
     const achPct=hasAsk&&askV>0?(actV/askV*100):0;
     rows.push(_dRow([
@@ -3661,7 +3696,7 @@ function _askScorecardTableXml(d){
   return _dTable(cw,header,rows);
 }
 function _askBrandTableXml(d){
-  const cw=[2000,1300,1300,1300,1300,1300,1300,1300,1300,1300,1300,1300];
+  const cw=[1900,1000,1000,900,1000,1000,900,900,900,950,1000,1000,950,1000];
   const header=_dRow([
     _dCell('Brand',cw[0],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF'}),
     _dCell('Ask',cw[1],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
@@ -3669,12 +3704,14 @@ function _askBrandTableXml(d){
     _dCell('ACH%',cw[3],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
     _dCell('Paid Ask',cw[4],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
     _dCell('Paid Actual',cw[5],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
-    _dCell('Paid ACH%',cw[6],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
-    _dCell('Org Ask',cw[7],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
-    _dCell('Org Actual',cw[8],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
-    _dCell('Org ACH%',cw[9],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
-    _dCell('Non-MS Actual',cw[10],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
-    _dCell('Whatsapp Actual',cw[11],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
+    _dCell('CTWA',cw[6],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
+    _dCell('Google',cw[7],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
+    _dCell('FB',cw[8],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
+    _dCell('Paid ACH%',cw[9],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
+    _dCell('Org Ask',cw[10],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
+    _dCell('Org Actual',cw[11],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
+    _dCell('Org ACH%',cw[12],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
+    _dCell('Non-MS Actual',cw[13],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
   ]);
   const rows=[];
   for(const bd of d.brandRows){
@@ -3696,21 +3733,24 @@ function _askBrandTableXml(d){
       _dCell(bd.ask>0&&!d.noAch?_dPct1(achPct):'—',cw[3],{align:'right',bold:true,color:d.noAch?'888888':_dHexColor(achPct,d.pacePct)}),
       _dCell(_fmtN(bd.paidAsk),cw[4],{align:'right'}),
       _dCell(_fmtN(bd.paidAct),cw[5],{align:'right'}),
-      _dCell(bd.paidAsk>0&&!d.noAch?_dPct1(paidAchPct):'—',cw[6],{align:'right',color:d.noAch?'888888':_dHexColor(paidAchPct,d.pacePct)}),
-      _dCell(_fmtN(bd.orgAsk),cw[7],{align:'right'}),
-      _dCell(_fmtN(bd.orgAct),cw[8],{align:'right'}),
-      _dCell(bd.orgAsk>0&&!d.noAch?_dPct1(orgAchPct):'—',cw[9],{align:'right',color:d.noAch?'888888':_dHexColor(orgAchPct,d.pacePct)}),
-      _dCell(_fmtN(bd.nonMSAct),cw[10],{align:'right',color:'666666'}),
-      _dCell(_fmtN(bd.waAct),cw[11],{align:'right',color:'666666'}),
+      _dCell(_fmtN(bd.waAct),cw[6],{align:'right',color:'666666'}),
+      _dCell(_fmtN(bd.gAct),cw[7],{align:'right',color:'666666'}),
+      _dCell(_fmtN(bd.fAct),cw[8],{align:'right',color:'666666'}),
+      _dCell(bd.paidAsk>0&&!d.noAch?_dPct1(paidAchPct):'—',cw[9],{align:'right',color:d.noAch?'888888':_dHexColor(paidAchPct,d.pacePct)}),
+      _dCell(_fmtN(bd.orgAsk),cw[10],{align:'right'}),
+      _dCell(_fmtN(bd.orgAct),cw[11],{align:'right'}),
+      _dCell(bd.orgAsk>0&&!d.noAch?_dPct1(orgAchPct):'—',cw[12],{align:'right',color:d.noAch?'888888':_dHexColor(orgAchPct,d.pacePct)}),
+      _dCell(_fmtN(bd.nonMSAct),cw[13],{align:'right',color:'666666'}),
     ]));
   }
   for(const x of d.noAskBrands||[]){
     rows.push(_dRow([
       _dCell(x.brand+' · no Ask set',cw[0],{bold:true,color:'888888'}),
       _dCell('—',cw[1],{align:'right'}),_dCell(_fmtN(x.a.total),cw[2],{align:'right'}),_dCell('—',cw[3],{align:'right'}),
-      _dCell('—',cw[4],{align:'right'}),_dCell(_fmtN(x.a.paid),cw[5],{align:'right'}),_dCell('—',cw[6],{align:'right'}),
-      _dCell('—',cw[7],{align:'right'}),_dCell(_fmtN(x.a.org),cw[8],{align:'right'}),_dCell('—',cw[9],{align:'right'}),
-      _dCell(_fmtN(x.a.nonms),cw[10],{align:'right',color:'666666'}),_dCell(_fmtN(x.a.wa),cw[11],{align:'right',color:'666666'}),
+      _dCell('—',cw[4],{align:'right'}),_dCell(_fmtN(x.a.paid),cw[5],{align:'right'}),
+      _dCell(_fmtN(x.a.wa),cw[6],{align:'right',color:'666666'}),_dCell(_fmtN(x.a.g),cw[7],{align:'right',color:'666666'}),_dCell(_fmtN(x.a.f),cw[8],{align:'right',color:'666666'}),
+      _dCell('—',cw[9],{align:'right'}),_dCell('—',cw[10],{align:'right'}),_dCell(_fmtN(x.a.org),cw[11],{align:'right'}),_dCell('—',cw[12],{align:'right'}),
+      _dCell(_fmtN(x.a.nonms),cw[13],{align:'right',color:'666666'}),
     ]));
   }
   return _dTable(cw,header,rows);
@@ -3809,7 +3849,7 @@ function exportAskModelTable(brand,month,totalDays,daysElapsed,pacePct){
   const models=D.ask_data?.[month]?.[brand]||{};
   const rows=Object.entries(models).filter(([mn,av])=>av.t&&P.askRowVisible(mn)).sort(([,a],[,b])=>b.t-a.t);
   if(!rows.length&&!P.otherModels(brand,new Set()).length)return;
-  const cw=[2300,1200,1200,1000,1200,1200,1000,1300];
+  const cw=[2000,1000,1000,900,1000,1000,850,850,850,900,1000,1000,900];
   const header=_dRow([
     _dCell('Model',cw[0],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF'}),
     _dCell('Ask (Total)',cw[1],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
@@ -3817,16 +3857,22 @@ function exportAskModelTable(brand,month,totalDays,daysElapsed,pacePct){
     _dCell('ACH%',cw[3],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
     _dCell('Paid Ask',cw[4],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
     _dCell('Paid Actual',cw[5],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
-    _dCell('Paid ACH%',cw[6],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
-    _dCell('Org Ask',cw[7],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
+    _dCell('CTWA',cw[6],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
+    _dCell('Google',cw[7],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
+    _dCell('FB',cw[8],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
+    _dCell('Paid ACH%',cw[9],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
+    _dCell('Org Ask',cw[10],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
+    _dCell('Org Actual',cw[11],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
+    _dCell('Org ACH%',cw[12],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
   ]);
   const covered=new Set();
   const bodyRows=rows.map(([model,av])=>{
     _askResolveVariants(model,month).forEach(v=>covered.add(v));
     const act=P.askRow(model);
     const achPct=av.t>0?(act/av.t*100):0;
-    const paidAsk=_askPaid(av),paidAct=P.askRowPaid(model);
+    const sp=P.askRowSplit(model),paidAsk=_askPaid(av),paidAct=sp.g+sp.f+sp.wa;
     const paidAchPct=paidAsk>0?(paidAct/paidAsk*100):0;
+    const orgAsk=av.o||0,orgAchPct=orgAsk>0?(sp.org/orgAsk*100):0;
     return _dRow([
       _dCell(model,cw[0],{bold:true}),
       _dCell(_fmtN(av.t),cw[1],{align:'right'}),
@@ -3834,8 +3880,13 @@ function exportAskModelTable(brand,month,totalDays,daysElapsed,pacePct){
       _dCell(av.t>0&&!noAch?_dPct1(achPct):'—',cw[3],{align:'right',bold:true,color:noAch?'888888':_dHexColor(achPct,pacePct)}),
       _dCell(_fmtN(paidAsk),cw[4],{align:'right'}),
       _dCell(_fmtN(paidAct),cw[5],{align:'right'}),
-      _dCell(paidAsk>0&&!noAch?_dPct1(paidAchPct):'—',cw[6],{align:'right',color:noAch?'888888':_dHexColor(paidAchPct,pacePct)}),
-      _dCell(_fmtN(av.o||0),cw[7],{align:'right'}),
+      _dCell(_fmtN(sp.wa),cw[6],{align:'right',color:'666666'}),
+      _dCell(_fmtN(sp.g),cw[7],{align:'right',color:'666666'}),
+      _dCell(_fmtN(sp.f),cw[8],{align:'right',color:'666666'}),
+      _dCell(paidAsk>0&&!noAch?_dPct1(paidAchPct):'—',cw[9],{align:'right',color:noAch?'888888':_dHexColor(paidAchPct,pacePct)}),
+      _dCell(_fmtN(orgAsk),cw[10],{align:'right'}),
+      _dCell(_fmtN(sp.org),cw[11],{align:'right'}),
+      _dCell(orgAsk>0&&!noAch?_dPct1(orgAchPct):'—',cw[12],{align:'right',color:noAch?'888888':_dHexColor(orgAchPct,pacePct)}),
     ]);
   });
   for(const g of _askOtherGroups(P,brand,covered)){
@@ -3847,8 +3898,13 @@ function exportAskModelTable(brand,month,totalDays,daysElapsed,pacePct){
       _dCell('—',cw[3],{align:'right'}),
       _dCell('—',cw[4],{align:'right'}),
       _dCell(_fmtN(g.paid),cw[5],{align:'right'}),
-      _dCell('—',cw[6],{align:'right'}),
-      _dCell('—',cw[7],{align:'right'}),
+      _dCell(_fmtN(g.wa),cw[6],{align:'right',color:'666666'}),
+      _dCell(_fmtN(g.goog),cw[7],{align:'right',color:'666666'}),
+      _dCell(_fmtN(g.fb),cw[8],{align:'right',color:'666666'}),
+      _dCell('—',cw[9],{align:'right'}),
+      _dCell('—',cw[10],{align:'right'}),
+      _dCell(_fmtN(g.org),cw[11],{align:'right'}),
+      _dCell('—',cw[12],{align:'right'}),
     ]));
   }
   let body=_dPara(`${month} — ${brand} Model Detail`,{size:28,bold:true,before:0});
@@ -3861,7 +3917,8 @@ function exportAskModelTable(brand,month,totalDays,daysElapsed,pacePct){
 // ── Excel (.xlsx) exports — same sections as the Word exports above, raw values ──
 function _askScorecardRows(d){
   const rows=[['Source','Ask','Actual (MTD)','ACH%','Status']];
-  for(const[label,askV,actV]of[['Total Leads',d.grandAsk,d.grandAct],['Paid (Google+FB)',d.grandPaidAsk,d.grandPaidAct],['Organic',d.grandOrgAsk,d.grandOrgAct],['Non-MS',null,d.grandNonMSAct],['Whatsapp',null,d.grandWaAct]]){
+  for(const[label,askV,actV,sub]of[['Total Leads',d.grandAsk,d.grandAct],['Paid (CTWA + Google + FB)',d.grandPaidAsk,d.grandPaidAct],['   ↳ CTWA (WhatsApp)',null,d.grandWaAct,1],['   ↳ Google',null,d.grandG,1],['   ↳ Facebook',null,d.grandF,1],['Organic',d.grandOrgAsk,d.grandOrgAct],['Non-MS',null,d.grandNonMSAct]]){
+    if(sub){rows.push([label,'—',actV,'—','']);continue;}
     const hasAsk=askV!=null&&!((d.cube||d.scorecardNoAsk)&&!askV);
     const achPct=hasAsk&&askV>0?(actV/askV*100):0;
     rows.push([label,hasAsk?askV:'—',actV,hasAsk&&askV>0&&!d.noAch?_dPct1(achPct):'—',hasAsk?(d.noAch?'—':_dStatusLabel(achPct,d.pacePct)):'No ask set']);
@@ -3869,19 +3926,19 @@ function _askScorecardRows(d){
   return rows;
 }
 function _askBrandRows(d){
-  const rows=[['Brand','Ask','Actual','ACH%','Paid Ask','Paid Actual','Paid ACH%','Org Ask','Org Actual','Org ACH%','Non-MS Actual','Whatsapp Actual']];
+  const rows=[['Brand','Ask','Actual','ACH%','Paid Ask','Paid Actual','CTWA','Google','FB','Paid ACH%','Org Ask','Org Actual','Org ACH%','Non-MS Actual']];
   for(const bd of d.brandRows){
     if(!bd.ask&&!bd.act)continue;
     if(!bd.askConfirmed){
-      rows.push([bd.brand,'Ask not set yet','','','','','','','','','','']);
+      rows.push([bd.brand,'Ask not set yet','','','','','','','','','','','','']);
       continue;
     }
     const achPct=bd.ask>0?(bd.act/bd.ask*100):0;
     const paidAchPct=bd.paidAsk>0?(bd.paidAct/bd.paidAsk*100):0;
     const orgAchPct=bd.orgAsk>0?(bd.orgAct/bd.orgAsk*100):0;
-    rows.push([bd.brand,bd.ask,bd.act,bd.ask>0&&!d.noAch?_dPct1(achPct):'—',bd.paidAsk,bd.paidAct,bd.paidAsk>0&&!d.noAch?_dPct1(paidAchPct):'—',bd.orgAsk,bd.orgAct,bd.orgAsk>0&&!d.noAch?_dPct1(orgAchPct):'—',bd.nonMSAct,bd.waAct]);
+    rows.push([bd.brand,bd.ask,bd.act,bd.ask>0&&!d.noAch?_dPct1(achPct):'—',bd.paidAsk,bd.paidAct,bd.waAct,bd.gAct,bd.fAct,bd.paidAsk>0&&!d.noAch?_dPct1(paidAchPct):'—',bd.orgAsk,bd.orgAct,bd.orgAsk>0&&!d.noAch?_dPct1(orgAchPct):'—',bd.nonMSAct]);
   }
-  for(const x of d.noAskBrands||[])rows.push([x.brand+' · no Ask set','—',x.a.total,'—','—',x.a.paid,'—','—',x.a.org,'—',x.a.nonms,x.a.wa]);
+  for(const x of d.noAskBrands||[])rows.push([x.brand+' · no Ask set','—',x.a.total,'—','—',x.a.paid,x.a.wa,x.a.g,x.a.f,'—','—',x.a.org,'—',x.a.nonms]);
   return rows;
 }
 function _askOverspendRows(d){
@@ -3912,17 +3969,17 @@ function exportAskModelTableXlsx(brand,month){
   const models=D.ask_data?.[month]?.[brand]||{};
   const modelRows=Object.entries(models).filter(([mn,av])=>av.t&&P.askRowVisible(mn)).sort(([,a],[,b])=>b.t-a.t);
   if(!modelRows.length&&!P.otherModels(brand,new Set()).length)return;
-  const rows=[['Model','Ask (Total)','Actual (MTD)','ACH%','Paid Ask','Paid Actual','Paid ACH%','Org Ask']];
+  const rows=[['Model','Ask (Total)','Actual (MTD)','ACH%','Paid Ask','Paid Actual','CTWA','Google','FB','Paid ACH%','Org Ask','Org Actual','Org ACH%']];
   const covered=new Set();
   for(const[model,av]of modelRows){
     _askResolveVariants(model,month).forEach(v=>covered.add(v));
     const act=P.askRow(model);
     const achPct=av.t>0?(act/av.t*100):0;
-    const paidAsk=_askPaid(av),paidAct=P.askRowPaid(model);
-    rows.push([model,av.t,act,av.t>0&&!noAch?_dPct1(achPct):'—',paidAsk,paidAct,paidAsk>0&&!noAch?_dPct1(paidAct/paidAsk*100):'—',av.o||0]);
+    const sp=P.askRowSplit(model),paidAsk=_askPaid(av),paidAct=sp.g+sp.f+sp.wa,orgAsk=av.o||0;
+    rows.push([model,av.t,act,av.t>0&&!noAch?_dPct1(achPct):'—',paidAsk,paidAct,sp.wa,sp.g,sp.f,paidAsk>0&&!noAch?_dPct1(paidAct/paidAsk*100):'—',orgAsk,sp.org,orgAsk>0&&!noAch?_dPct1(sp.org/orgAsk*100):'—']);
   }
   for(const g of _askOtherGroups(P,brand,covered)){
-    rows.push([g.name+' · no ask','—',g.actual,'—','—',g.paid,'—','—']);
+    rows.push([g.name+' · no ask','—',g.actual,'—','—',g.paid,g.wa,g.goog,g.fb,'—','—',g.org,'—']);
   }
   {const ft=_askFilterText(month);if(ft)rows.push([],[ft]);}
   _downloadXlsx(`${brand.replace(/[^\w]+/g,'-')}-Models-${month.replace(/'/g,'-')}.xlsx`,`${brand} Model Detail`,rows);
@@ -3956,7 +4013,7 @@ function _askModelTable(brand,month,totalDays,daysElapsed,pacePct){
   <div style="font-size:.74rem;color:var(--muted);margin:0 0 4px">Rows marked <span style="font-style:italic">· no ask</span> are models this brand delivers on with no Ask target set — included so Actual sums to the brand total.</div>
   <table class="tbl" style="font-size:.82rem;margin:8px 0"><thead><tr>
     <th>Model</th><th>Ask (Total)</th><th>Actual (MTD)</th><th>ACH%</th>
-    <th>Paid Ask</th><th>Paid Actual</th><th>Paid ACH%</th><th>Org Ask</th>
+    <th>Paid Ask</th><th>Paid Actual</th><th title="Click-to-WhatsApp: leads whose source is WhatsApp">CTWA</th><th>Google</th><th>FB</th><th>Paid ACH%</th><th>Org Ask</th><th>Org Actual</th><th>Org ACH%</th>
     ${isPartial?'<th>Proj Month-End</th>':''}
     <th>Status</th>
   </tr></thead><tbody>`;
@@ -3969,8 +4026,9 @@ function _askModelTable(brand,month,totalDays,daysElapsed,pacePct){
     const achNum=achPct||0;
     const projAch=!noAch&&isPartial&&daysElapsed>0&&av.t>0?'~'+Math.round(act/daysElapsed*totalDays/av.t*100)+'%':null;
     const st=noAch?'<span style="color:var(--muted)">—</span>':_askStatus(achNum,pacePct);
-    const paidAsk=_askPaid(av),paidAct=P.askRowPaid(model);
+    const sp=P.askRowSplit(model),paidAsk=_askPaid(av),paidAct=sp.g+sp.f+sp.wa;
     const paidAch=!noAch&&paidAsk>0?(paidAct/paidAsk*100):null;
+    const orgAsk=av.o||0,orgAch=!noAch&&orgAsk>0?(sp.org/orgAsk*100):null;
     h+=`<tr>
       <td style="font-weight:600;padding-left:8px">${model}</td>
       <td class="num">${_fmtN(av.t)}</td>
@@ -3978,8 +4036,13 @@ function _askModelTable(brand,month,totalDays,daysElapsed,pacePct){
       <td class="num" style="color:${noAch?'var(--muted)':_achColor(achNum,pacePct)};font-weight:700">${_fmtP(achPct)}</td>
       <td class="num" style="color:var(--muted)">${_fmtN(paidAsk)}</td>
       <td class="num">${_fmtN(paidAct)}</td>
+      <td class="num" style="color:var(--muted)">${_fmtN(sp.wa)}</td>
+      <td class="num" style="color:var(--muted)">${_fmtN(sp.g)}</td>
+      <td class="num" style="color:var(--muted)">${_fmtN(sp.f)}</td>
       <td class="num" style="color:${paidAch==null?'var(--muted)':_achColor(paidAch,pacePct)}">${_fmtP(paidAch)}</td>
-      <td class="num" style="color:var(--muted)">${_fmtN(av.o||0)}</td>
+      <td class="num" style="color:var(--muted)">${_fmtN(orgAsk)}</td>
+      <td class="num">${_fmtN(sp.org)}</td>
+      <td class="num" style="color:${orgAch==null?'var(--muted)':_achColor(orgAch,pacePct)}">${_fmtP(orgAch)}</td>
       ${isPartial?`<td class="num">${projAch||'—'}</td>`:''}
       <td class="num" style="font-size:.95rem">${st}</td>
     </tr>`;
@@ -3995,7 +4058,12 @@ function _askModelTable(brand,month,totalDays,daysElapsed,pacePct){
       <td class="num" style="color:var(--muted)">—</td>
       <td class="num" style="color:var(--muted)">—</td>
       <td class="num">${_fmtN(g.paid)}</td>
+      <td class="num" style="color:var(--muted)">${_fmtN(g.wa)}</td>
+      <td class="num" style="color:var(--muted)">${_fmtN(g.goog)}</td>
+      <td class="num" style="color:var(--muted)">${_fmtN(g.fb)}</td>
       <td class="num" style="color:var(--muted)">—</td>
+      <td class="num" style="color:var(--muted)">—</td>
+      <td class="num">${_fmtN(g.org)}</td>
       <td class="num" style="color:var(--muted)">—</td>
       ${isPartial?`<td class="num" style="color:var(--muted)">—</td>`:''}
       <td class="num" style="color:var(--muted)">—</td>

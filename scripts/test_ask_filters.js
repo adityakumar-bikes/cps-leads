@@ -126,15 +126,17 @@ const prefixOf = (month) => ({"Sep'2026": '2026-09', "Oct'2026": '2026-10'})[mon
 function brute(f, month) {
   const ok = (c) => (!f.state || f.state.includes(c[1])) && (!f.medium || f.medium.includes(c[2])) &&
                     (!f.model || f.model.includes(c[0])) && (!f.bu || f.bu.includes(BU[c[0]]));
-  const out = {brand: {}, model: {}, day: {}, paid: {}};
+  const out = {brand: {}, model: {}, day: {}, paid: {}, split: {}};
   for (const b of ['TVS', 'Hero']) {
     const m = (pred) => sum((c) => ok(c) && BRAND[c[0]] === b && c[3] === month && pred(c));
-    out.brand[b] = {total: m(() => true), paid: m((c) => c[2] === 'Google' || c[2] === 'Facebook'), org: m((c) => c[2] === 'Organic'),
-                    nonms: m((c) => c[2] === 'Non-MS'), wa: m((c) => c[2] === 'Whatsapp')};
+    const g = m((c) => c[2] === 'Google'), f = m((c) => c[2] === 'Facebook'), wa = m((c) => c[2] === 'Whatsapp');
+    out.brand[b] = {total: m(() => true), paid: g + f + wa, g, f, wa, org: m((c) => c[2] === 'Organic'), nonms: m((c) => c[2] === 'Non-MS')};
   }
   for (const mdl of MODELS) {
     out.model[mdl] = sum((c) => ok(c) && c[0] === mdl && c[3] === month);
-    out.paid[mdl] = sum((c) => ok(c) && c[0] === mdl && c[3] === month && (c[2] === 'Google' || c[2] === 'Facebook'));
+    out.paid[mdl] = sum((c) => ok(c) && c[0] === mdl && c[3] === month && (c[2] === 'Google' || c[2] === 'Facebook' || c[2] === 'Whatsapp'));
+    const sm = (med) => sum((c) => ok(c) && c[0] === mdl && c[3] === month && c[2] === med);
+    out.split[mdl] = {g: sm('Google'), f: sm('Facebook'), wa: sm('Whatsapp'), org: sm('Organic')};
     out.day[mdl] = {};
     for (const dt of DATES.filter((d) => d.startsWith(prefixOf(month)))) out.day[mdl][dt] = sum((c) => ok(c) && c[0] === mdl && c[4] === dt);
   }
@@ -145,15 +147,16 @@ function compareAll(label, f, month) {
   setF(f);
   const P = A._askActuals(month);
   const want = brute(f, month);
-  const got = {brand: {}, model: {}, day: {}, paid: {}};
+  const got = {brand: {}, model: {}, day: {}, paid: {}, split: {}};
   for (const b of ['TVS', 'Hero']) got.brand[b] = P.brand(b);
   for (const m of MODELS) {
     got.model[m] = P.leadModel(m);
     got.paid[m] = P.paidOf(m);
+    got.split[m] = P.splitOf(m);
     got.day[m] = {};
     for (const dt of DATES.filter((d) => d.startsWith(prefixOf(month)))) got.day[m][dt] = P.day([m], dt);
   }
-  check(label + ' — brand totals, model totals, paid (Google+Facebook) and every day match a brute-force count', got, want);
+  check(label + ' — brand totals (Paid = CTWA + Google + Facebook, each split out), model totals, per-model splits and every day match a brute-force count', got, want);
   return P;
 }
 
@@ -271,25 +274,32 @@ console.log('\n== brands with leads but no Ask row for the month (e.g. Hero in O
   check('with the Hero Ask row present again, nothing is listed as missing', A._askNoAskBrands(askOct, A._askActuals("Oct'2026")), []);
 }
 
-console.log('\n== paid (Google + Facebook) Actual per model / Ask row ==');
+console.log('\n== Paid = CTWA (WhatsApp source) + Google + Facebook, per model / Ask row ==');
 {
-  const paidAll = brute({}, "Oct'2026").paid;
+  const paidAll = brute({}, "Oct'2026").paid, splitAll = brute({}, "Oct'2026").split;
   setF({});
   let P = A._askActuals("Oct'2026");
-  check('legacy path: paid per model = Google + Facebook leads', MODELS.map((m) => P.paidOf(m)), MODELS.map((m) => paidAll[m]));
-  check('an Ask row folds its variants into its paid Actual', P.askRowPaid('TVS iQube'), paidAll['TVS iQube'] + paidAll['TVS iQube S'] + paidAll['TVS iQube ST']);
+  check('legacy path: paid per model = CTWA + Google + Facebook leads', MODELS.map((m) => P.paidOf(m)), MODELS.map((m) => paidAll[m]));
+  check('legacy path: the split per model (Google, Facebook, CTWA, Organic)', MODELS.map((m) => P.splitOf(m)), MODELS.map((m) => splitAll[m]));
+  const sum3 = (ms) => ms.reduce((s, m) => s + paidAll[m], 0);
+  check('an Ask row folds its variants into its paid Actual', P.askRowPaid('TVS iQube'), sum3(['TVS iQube', 'TVS iQube S', 'TVS iQube ST']));
+  check('...and into each part of the split', P.askRowSplit('TVS iQube'), ['TVS iQube', 'TVS iQube S', 'TVS iQube ST'].reduce((o, m) => ({g: o.g + splitAll[m].g, f: o.f + splitAll[m].f, wa: o.wa + splitAll[m].wa, org: o.org + splitAll[m].org}), {g: 0, f: 0, wa: 0, org: 0}));
   setF({medium: ['Google', 'Organic']});
   P = A._askActuals("Oct'2026");
   const paidG = brute({medium: ['Google', 'Organic']}, "Oct'2026").paid;
   check('legacy path honours the Source filter (only Google counts as paid)', MODELS.map((m) => P.paidOf(m)), MODELS.map((m) => paidG[m]));
-  setF({medium: ['Organic', 'Whatsapp']});
+  setF({medium: ['Whatsapp']});
   P = A._askActuals("Oct'2026");
-  check('...and no paid Actual when no paid source is selected', MODELS.map((m) => P.paidOf(m)), MODELS.map(() => 0));
+  const paidW = brute({medium: ['Whatsapp']}, "Oct'2026");
+  check('Source = WhatsApp only: all of paid is CTWA', MODELS.map((m) => [P.paidOf(m), P.splitOf(m).wa]), MODELS.map((m) => [paidW.paid[m], paidW.paid[m]]));
+  setF({medium: ['Organic']});
+  P = A._askActuals("Oct'2026");
+  check('...and no paid Actual when only Organic is selected (Organic still shows)', [MODELS.map((m) => P.paidOf(m)), MODELS.map((m) => P.splitOf(m).org)], [MODELS.map(() => 0), MODELS.map((m) => brute({medium: ['Organic']}, "Oct'2026").split[m].org)]);
   setF({state: ['Karnataka', 'Bihar']});
   P = A._askActuals("Oct'2026");
-  const paidS = brute({state: ['Karnataka', 'Bihar']}, "Oct'2026").paid;
-  check('cube path: paid Actual follows the State filter', MODELS.map((m) => P.paidOf(m)), MODELS.map((m) => paidS[m]));
-  check('cube path: Ask-row paid folds variants', P.askRowPaid('TVS iQube'), paidS['TVS iQube'] + paidS['TVS iQube S'] + paidS['TVS iQube ST']);
+  const bs = brute({state: ['Karnataka', 'Bihar']}, "Oct'2026");
+  check('cube path: paid Actual and its split follow the State filter', [MODELS.map((m) => P.paidOf(m)), MODELS.map((m) => P.splitOf(m))], [MODELS.map((m) => bs.paid[m]), MODELS.map((m) => bs.split[m])]);
+  check('cube path: Ask-row paid folds variants', P.askRowPaid('TVS iQube'), ['TVS iQube', 'TVS iQube S', 'TVS iQube ST'].reduce((s, m) => s + bs.paid[m], 0));
   setF({model: ['TVS iQube S']});
   P = A._askActuals("Oct'2026");
   const paidM = brute({model: ['TVS iQube S']}, "Oct'2026").paid;
@@ -298,9 +308,15 @@ console.log('\n== paid (Google + Facebook) Actual per model / Ask row ==');
   const askOct = D.ask_data["Oct'2026"]; const savedHero = askOct.Hero; delete askOct.Hero;
   P = A._askActuals("Oct'2026");
   const hg = A._askOtherGroups(P, 'Hero', new Set()).find((x) => x.name === 'Hero Super Splendor XTEC');
-  check('no-Ask groups carry the paid Actual of all folded spellings', hg.paid, paidAll['Hero Super Splendor XTEC'] + paidAll['Hero Super Splendor']);
+  const sp1 = splitAll['Hero Super Splendor XTEC'], sp2 = splitAll['Hero Super Splendor'];
+  check('no-Ask groups carry paid and its split for all folded spellings', [hg.paid, hg.goog, hg.fb, hg.wa, hg.org], [paidAll['Hero Super Splendor XTEC'] + paidAll['Hero Super Splendor'], sp1.g + sp2.g, sp1.f + sp2.f, sp1.wa + sp2.wa, sp1.org + sp2.org]);
   askOct.Hero = savedHero;
   setF({});
+  // the brand row: paid is the sum of its parts, and parts + organic + non-MS add up to the total
+  for (const b of ['TVS', 'Hero']) {
+    const a = A._askActuals("Oct'2026").brand(b);
+    check(`brand ${b}: Paid = CTWA + Google + FB, and Paid + Organic + Non-MS = Total`, [a.paid === a.wa + a.g + a.f, a.paid + a.org + a.nonms === a.total], [true, true]);
+  }
 }
 
 console.log(`\n${'='.repeat(60)}\n${pass} passed, ${fail} failed`);
