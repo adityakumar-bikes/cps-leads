@@ -15,7 +15,7 @@ Run via GitHub Actions:
     Set GOOGLE_SERVICE_ACCOUNT_JSON secret (contents of credentials.json).
 """
 
-import gzip, io, json, os, zipfile, csv, sys, re, socket, time
+import base64, gzip, io, json, os, zipfile, csv, sys, re, socket, time, zlib
 from collections import defaultdict, Counter
 from datetime import datetime, timezone, timedelta
 import openpyxl
@@ -1118,6 +1118,252 @@ def norm_lt(raw):
     return v if v else "Unknown"
 
 
+# ── Lead-level fact table ──────────────────────────────────────────────────────────────
+# Every number on the dashboard is a count of leads cut by some mix of Brand / BU / Model / Source /
+# Month / State / City / Dealer / Lead type / Date, and the top bar lets the user filter by almost all
+# of those at once. Pre-aggregating each mix separately (what this file used to do alone) can never
+# cover every combination, so tabs ended up scaling one cross-section by another and drifted from the
+# sheets. So the leads themselves are shipped too, compactly, and the page counts whatever the current
+# filters ask for -- every tab then reconciles with every other by construction.
+#
+# One row per counted lead (the same rows that feed build_aggregations), with these columns:
+#     state, city, dealer, product (= brand + BU + model), month (Lead_Month), medium (Source),
+#     lt (lead type), date (index of the lead's Date; 0 = none)
+# Rows are sorted by the columns in that order, so each column is long runs of equal values; the
+# runs are coded as (delta of value, length) varints, the date column as varint deltas, and the lot
+# is deflated (zlib) and base64'd. The browser (index.html, "fact engine") inflates it with
+# DecompressionStream and keeps the columns as typed arrays.
+FACT_FORMAT  = 1
+FACT_FIELDS  = ("state", "city", "dealer", "product", "month", "medium", "lt")   # run-length coded, in sort order
+FACT_BITS    = {"state": 8, "city": 15, "dealer": 20, "product": 13, "month": 7, "medium": 5, "lt": 8}
+FACT_DATE_BITS  = 12
+FACT_DATE_EPOCH = datetime(2025, 1, 1)   # date index 1 = this day; 0 = lead has no usable date
+
+
+def _put_varint(buf, n):
+    while n >= 0x80:
+        buf.append((n & 0x7F) | 0x80)
+        n >>= 7
+    buf.append(n)
+
+
+def _zigzag(n):
+    return (n << 1) if n >= 0 else ((-n) << 1) - 1
+
+
+class FactTable:
+    """Collects one row per counted lead, then encode() turns them into the compact payload."""
+
+    def __init__(self):
+        self.ids = {f: {} for f in FACT_FIELDS}       # field -> {value: provisional id}
+        self.keys = []                                  # one packed int per lead
+        self._shift = {}
+        s = FACT_DATE_BITS
+        for f in reversed(FACT_FIELDS):
+            self._shift[f] = s
+            s += FACT_BITS[f]
+        self.bad_dates = 0
+
+    def add(self, state, city, dealer, product, month, medium, lt, lead_dt):
+        key = 0
+        for f, v in (("state", state), ("city", city), ("dealer", dealer), ("product", product),
+                     ("month", month), ("medium", medium), ("lt", lt)):
+            d = self.ids[f]
+            i = d.get(v)
+            if i is None:
+                i = d[v] = len(d)
+                if i >> FACT_BITS[f]:
+                    raise ValueError(f"fact table: more than {1 << FACT_BITS[f]} distinct {f} values "
+                                     f"-- widen FACT_BITS['{f}']")
+            key |= i << self._shift[f]
+        di = 0
+        if lead_dt is not None:
+            di = (lead_dt - FACT_DATE_EPOCH).days + 1
+            if di < 1 or di >> FACT_DATE_BITS:
+                self.bad_dates += 1
+                di = 0
+        self.keys.append(key | di)
+
+    def encode(self):
+        """-> dict for the dashboard blob: dictionaries (in the order the payload refers to them) + payload."""
+        keys = self.keys
+        keys.sort()
+        n = len(keys)
+        masks = {f: (1 << FACT_BITS[f]) - 1 for f in FACT_FIELDS}
+        shifts = [self._shift[f] for f in FACT_FIELDS]
+        mask_l = [masks[f] for f in FACT_FIELDS]
+        nf = len(FACT_FIELDS)
+        remap = [dict() for _ in range(nf)]            # provisional id -> output id (order of first appearance)
+        order = [[] for _ in range(nf)]                # output id -> provisional id
+        run_val = [None] * nf                          # output id of the current run, per field
+        run_len = [0] * nf
+        vals = [bytearray() for _ in range(nf)]        # zigzag(delta of run value) varints
+        lens = [bytearray() for _ in range(nf)]        # run length varints
+        nruns = [0] * nf
+        prev_val = [0] * nf
+        dates = bytearray()
+        prev_date = 0
+        date_mask = (1 << FACT_DATE_BITS) - 1
+
+        def close_run(f):
+            _put_varint(vals[f], _zigzag(run_val[f] - prev_val[f]))
+            prev_val[f] = run_val[f]
+            _put_varint(lens[f], run_len[f])
+            nruns[f] += 1
+
+        prev_prefix = -1
+        cell_n = 0
+        for k in keys:
+            prefix = k >> FACT_DATE_BITS
+            if prefix != prev_prefix:
+                if cell_n:
+                    for f in range(nf):
+                        run_len[f] += cell_n
+                cell_n = 0
+                for f in range(nf):
+                    pid = (k >> shifts[f]) & mask_l[f]
+                    oid = remap[f].get(pid)
+                    if oid is None:
+                        oid = remap[f][pid] = len(order[f])
+                        order[f].append(pid)
+                    if oid != run_val[f]:
+                        if run_len[f]:
+                            close_run(f)
+                        run_val[f] = oid
+                        run_len[f] = 0
+                prev_prefix = prefix
+            cell_n += 1
+            d = k & date_mask
+            dz = d - prev_date
+            _put_varint(dates, (dz << 1) if dz >= 0 else ((-dz) << 1) - 1)
+            prev_date = d
+        if cell_n:
+            for f in range(nf):
+                run_len[f] += cell_n
+        for f in range(nf):
+            if run_len[f]:
+                close_run(f)
+
+        payload = bytearray(b"F" + bytes([FACT_FORMAT]))
+        _put_varint(payload, n)
+        for f in range(nf):
+            _put_varint(payload, nruns[f])
+            payload += vals[f]
+            payload += lens[f]
+        payload += dates
+        packed = zlib.compress(bytes(payload), 9)         # zlib format: what DecompressionStream('deflate') reads
+
+        def names(fi):
+            inv = {i: v for v, i in self.ids[FACT_FIELDS[fi]].items()}
+            return [inv[p] for p in order[fi]]
+
+        return {
+            "v": FACT_FORMAT, "n": n, "epoch": FACT_DATE_EPOCH.strftime("%Y-%m-%d"),
+            "states": names(0), "cities": names(1), "dealers": names(2),
+            "products": [list(p) for p in names(3)],
+            "months": names(4), "mediums": names(5), "lts": names(6),
+            "bytes_raw": len(payload), "bytes_packed": len(packed),
+            "data": base64.b64encode(packed).decode("ascii"),
+        }
+
+
+def _fact_read(fact):
+    """-> (n, runs, raw, date_pos): runs[f] = (absolute output ids, run lengths) for FACT_FIELDS[f]; the date
+    varints start at raw[date_pos:]."""
+    raw = zlib.decompress(base64.b64decode(fact["data"]))
+    assert raw[0:1] == b"F" and raw[1] == FACT_FORMAT, "unknown fact payload"
+    pos = [2]
+
+    def varint():
+        r = s = 0
+        while True:
+            b = raw[pos[0]]; pos[0] += 1
+            r |= (b & 0x7F) << s
+            if b < 0x80:
+                return r
+            s += 7
+
+    def unzig(z):
+        return (z >> 1) if not (z & 1) else -((z + 1) >> 1)
+
+    n = varint()
+    runs = []
+    for _ in FACT_FIELDS:
+        nr = varint()
+        vs, v = [], 0
+        for _ in range(nr):
+            v += unzig(varint())
+            vs.append(v)
+        ls = [varint() for _ in range(nr)]
+        assert sum(ls) == n, "run lengths do not add up to the row count"
+        runs.append((vs, ls))
+    return n, runs, raw, pos[0]
+
+
+def decode_fact(fact):
+    """Inverse of FactTable.encode() -> list of (state, city, dealer, (brand, bu, model), month, medium, lt,
+    'YYYY-MM-DD' or ''). Used by the regression tests and for spot checks; the dashboard has its own JS decoder."""
+    n, runs, raw, p = _fact_read(fact)
+    cols = []
+    for vs, ls in runs:
+        col = []
+        for v, ln in zip(vs, ls):
+            col.extend([v] * ln)
+        cols.append(col)
+    epoch = datetime.strptime(fact["epoch"], "%Y-%m-%d")
+    names = [fact["states"], fact["cities"], fact["dealers"], [tuple(x) for x in fact["products"]],
+             fact["months"], fact["mediums"], fact["lts"]]
+    out, d = [], 0
+    for i in range(n):
+        z = r = 0
+        while True:
+            b = raw[p]; p += 1
+            r |= (b & 0x7F) << z
+            if b < 0x80:
+                break
+            z += 7
+        d += (r >> 1) if not (r & 1) else -((r + 1) >> 1)
+        out.append(tuple(names[f][cols[f][i]] for f in range(len(FACT_FIELDS)))
+                   + ((epoch + timedelta(days=d - 1)).strftime("%Y-%m-%d") if d else "",))
+    return out
+
+
+def fact_check(fact, totals):
+    """Cross-check an encoded fact table against the 1-D aggregates built from the very same rows.
+    `totals` maps field name ('state', 'city', 'dealer', 'month', 'medium', 'lt', 'brand', 'bu', 'model') to
+    {value: leads}. Works on the run lists, so it costs a second or two, not a full row decode.
+    Returns a list of human-readable problems (empty = every total reconciles)."""
+    n, runs, _, _ = _fact_read(fact)
+    names = {"state": fact["states"], "city": fact["cities"], "dealer": fact["dealers"],
+             "month": fact["months"], "medium": fact["mediums"], "lt": fact["lts"]}
+    got = {}
+    for fi, f in enumerate(FACT_FIELDS):
+        if f == "product":
+            continue
+        c = Counter()
+        for v, ln in zip(*runs[fi]):
+            c[names[f][v]] += ln
+        got[f] = c
+    pc = Counter()
+    for v, ln in zip(*runs[FACT_FIELDS.index("product")]):
+        pc[v] += ln
+    for key, idx in (("brand", 0), ("bu", 1), ("model", 2)):
+        c = Counter()
+        for v, ln in pc.items():
+            c[fact["products"][v][idx]] += ln
+        got[key] = c
+    problems = []
+    for f, want in totals.items():
+        have = got[f]
+        if sum(have.values()) != n:
+            problems.append(f"{f}: fact rows {sum(have.values()):,} != {n:,}")
+        bad = {k: (have.get(k, 0), want.get(k, 0)) for k in set(have) | set(want) if have.get(k, 0) != want.get(k, 0)}
+        if bad:
+            sample = dict(list(bad.items())[:3])
+            problems.append(f"{f}: {len(bad)} value(s) differ from the aggregates (fact, aggregate), e.g. {sample}")
+    return problems
+
+
 def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
     # Canonical model names
     model_cases = defaultdict(Counter)
@@ -1207,6 +1453,7 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
         key=_cube_month_rank.get)
     ask_cube_months = set(_cube_present[-ASK_CUBE_MONTHS:])
     ask_cube = defaultdict(int)   # (model, state, medium, month, "YYYY-MM-DD" or "") -> leads
+    fact = FactTable()            # one row per counted lead -- see FactTable
 
     def parse_lead_date(raw):
         """Parse date string in either yyyy-mm-dd or yyyy-Mon-dd format."""
@@ -1318,6 +1565,7 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
         inc(bu_lt[bu],      lt)
         inc(bu_model[bu],   model)
         model_bu_map[model] = bu
+        fact.add(state, city, dealer, (brand, bu, model), month, medium, lt, lead_dt)
 
     # Sort months by canonical order
     month_key = {m: i for i, m in enumerate(MONTH_ORDER)}
@@ -1367,6 +1615,17 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
         print(f"  Ask cube: {len(_keys):,} cells over {len(_months)} months "
               f"({_months[0]} - {_months[-1]}); " + ("reconciles with every month's total" if not _bad
               else f"MISMATCH vs month totals (cube, total): {_bad}"))
+
+    fact_out = fact.encode()
+    _problems = fact_check(fact_out, {
+        "brand": by_brand, "bu": by_bu, "model": by_model, "state": by_state, "city": by_city, "dealer": by_dealer,
+        "medium": by_medium, "month": by_month, "lt": by_lt})
+    print(f"  Fact table: {fact_out['n']:,} leads, {fact_out['bytes_raw'] / 1e6:.1f} MB raw -> "
+          f"{fact_out['bytes_packed'] / 1e6:.1f} MB deflated" + (f" ({fact.bad_dates:,} unusable dates)" if fact.bad_dates else "")
+          + ("; reconciles with every aggregate" if not _problems else "; MISMATCH vs aggregates: " + "; ".join(_problems)))
+    del fact.keys[:]   # free the packed keys
+    if _problems:
+        fact_out["problems"] = _problems   # main() turns these into header warnings
 
     # model_date trim: day-level granularity for the *entire* multi-year history would
     # balloon the embedded JSON (~30x the rows of model_month) for no real benefit — the
@@ -1441,6 +1700,7 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
         "model_date":    model_date,
         "model_medium_date": model_medium_date,
         "ask_cube":      ask_cube_out,
+        "fact":          fact_out,
         "by_bu":         srt(by_bu),
         "bu_brand":      dict(bu_brand),
         "bu_medium":     dict(bu_medium),
@@ -1800,6 +2060,8 @@ def main():
     dash["unique_phone"] = {"brands": sorted(UNIQUE_PHONE_BRANDS), "left_out": left_out,
                             "left_out_by_month": {m: n for m, n in sorted(up_stats.get("by_month", {}).items())}}
     print(f"Total: {dash['total']:,} | Brands: {list(dash['by_brand'].keys())}")
+    for prob in dash["fact"].get("problems", []):
+        warnings.append(f"Lead table does not reconcile with the aggregates — {prob}")
 
     # What this run read from the rolling source files, and anything that looked off —
     # shown in the dashboard header so it's visible without opening the Actions log.

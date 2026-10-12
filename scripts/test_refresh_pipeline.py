@@ -612,6 +612,83 @@ d25 = rd.build_aggregations(kept)
 check("dashboard Jawa total = unique phone-months (pA Oct, pA Sep, pB Oct, 2 no-phone rows) = 5", d25["by_brand"]["Jawa"] == 5, d25["by_brand"])
 check("...and TVS keeps both of its repeat-phone rows", d25["by_brand"]["TVS"] == 2)
 
+# ============ RUN 26: the lead-level fact table (every tab's filters count from it) =============
+print("\n== RUN 26: fact table (one row per counted lead, run-length coded + deflated) ==")
+import random as _r26, zlib as _z26, base64 as _b26
+from datetime import datetime as _dt26, timedelta as _td26
+def _fx_rows():
+    out = []
+    def add(brand, model, state, city, crm, medium, lt, month, date, k, **kw):
+        for _ in range(k):
+            n = len(out)
+            r = {"opty_id": f"f{n:06d}", "encrypt_mobile_number": f"fm{n}", "brand": brand, "model": model, "State": state,
+                 "City": city, "oem_crm_id": crm, "Medium": medium, "lead_type": lt, "Lead_Month": month, "Date": date}
+            r.update(kw); out.append(r)
+    add("TVS",  "TVS Raider",  "Maharashtra", "Pune",   "C100", "Google",   "1105", "Oct'2026", "2026-10-01", 3)
+    add("TVS",  "TVS Raider",  "Maharashtra", "Pune",   "C100", "Google",   "1105", "Oct'2026", "2026-10-02", 2)
+    add("TVS",  "TVS Raider",  "Maharashtra", "Pune",   "C101", "Facebook", "103",  "Oct'2026", "2026-Oct-03", 4)   # other date format
+    add("TVS",  "tvs raider",  "Maharashtra", "Pune",   "C101", "Facebook", "103",  "Oct'2026", "",            1)   # no date, model spelt differently
+    add("TVS",  "TVS iQube S", "Bihar",       "Patna",  "",     "Organic",  "70",   "Sep'2026", "2026-09-30",  5)   # no CRM id -> dealer Unknown
+    add("Hero", "Hero Glamour","",            "",       "H1",   "Non-MS",   "",     "Sep'2026", "2026-09-15",  6)   # blank state/city/lead type
+    add("Ampere","Ampere Magnus","Delhi",     "Delhi",  "A1",   "Whatsapp", "1105", "Aug'2026", "2024-01-01",  2)   # date before the epoch
+    add("Ampere","Ampere Magnus","Delhi",     "Delhi",  "A1",   "Whatsapp", "1105", "Aug'2026", "2040-01-01",  1)   # date far beyond the 12-bit range
+    add("Hero", "Hero Glamour","Bihar",       "Patna",  "H2",   "Organic",  "70",   "Mar'2025", "2025-03-10",  4)   # SKIP_MONTHS: not counted
+    return out
+d26 = rd.build_aggregations(_fx_rows())
+f26 = d26["fact"]
+check("blob carries the fact table", isinstance(f26, dict) and f26["v"] == rd.FACT_FORMAT and f26["n"] == d26["total"], f26.get("n"))
+check("payload is zlib-deflated and starts with the magic bytes", _z26.decompress(_b26.b64decode(f26["data"]))[:2] == b"F" + bytes([rd.FACT_FORMAT]))
+dec26 = rd.decode_fact(f26)
+want26 = _C()
+for r in _fx_rows():
+    if r["Lead_Month"] == "Mar'2025":
+        continue
+    st_ = r["State"] or "Unknown"; ci_ = r["City"] or "Unknown"
+    dl_ = f'{r["oem_crm_id"]} \u00b7 {r["City"]}, {r["State"]}' if r["oem_crm_id"] else "Unknown"
+    mo_ = "TVS Raider" if r["model"].lower() == "tvs raider" else r["model"]
+    bu_ = {"TVS": "TVS", "Hero": "Hero", "Ampere": "Ampere Electric"}[r["brand"]]
+    br_ = {"TVS": "TVS", "Hero": "Hero", "Ampere": "Ampere Electric"}[r["brand"]]
+    dt_ = rd.parse_lead_date(r["Date"]) if hasattr(rd, "parse_lead_date") else None
+    if not dt_:
+        for fmt in ("%Y-%m-%d", "%Y-%b-%d"):
+            try: dt_ = _dt26.strptime(r["Date"], fmt); break
+            except ValueError: pass
+    iso_ = dt_.strftime("%Y-%m-%d") if dt_ else ""
+    if dt_ and (dt_ < rd.FACT_DATE_EPOCH or (dt_ - rd.FACT_DATE_EPOCH).days + 1 >= 1 << rd.FACT_DATE_BITS):
+        iso_ = ""                                                       # unusable date -> stored as "no date"
+    want26[(st_, ci_, dl_, (br_, bu_, mo_), r["Lead_Month"], r["Medium"], r["lead_type"] or "Unknown", iso_)] += 1
+check("decodes to exactly the counted leads (state, city, dealer, brand/BU/model, month, source, lead type, date)", _C(dec26) == want26, (_C(dec26) - want26, want26 - _C(dec26)))
+check("model spellings are folded to one canonical name, like every other aggregate", {p[2] for p in f26["products"] if p[0] == "TVS"} == {"TVS Raider", "TVS iQube S"}, f26["products"])
+check("both date formats parse; missing dates are stored as none", any(r[-1] == "2026-10-03" for r in dec26) and any(r[-1] == "" for r in dec26))
+check("dates outside the representable range are counted as unusable, not crashed on", sum(1 for r in dec26 if r[1] == "Delhi" and r[-1] == "") == 3)
+check("rows from skipped months are not in the table", all(r[4] != "Mar'2025" for r in dec26) and f26["n"] == len(dec26))
+tot26 = {"brand": d26["by_brand"], "bu": d26["by_bu"], "model": d26["by_model"], "state": d26["by_state"], "city": d26["by_city"],
+         "dealer": d26["by_dealer"], "medium": d26["by_medium"], "month": d26["by_month"], "lt": d26["by_lt"]}
+check("fact_check: every 1-D aggregate reconciles with the table", rd.fact_check(f26, tot26) == [], rd.fact_check(f26, tot26))
+bad26 = {k: dict(v) for k, v in tot26.items()}; bad26["medium"]["Google"] += 1
+check("fact_check notices a single-lead discrepancy", len(rd.fact_check(f26, bad26)) == 1)
+e26 = rd.build_aggregations([])["fact"]
+check("no leads -> an empty but valid table", e26["n"] == 0 and rd.decode_fact(e26) == [])
+# a bigger random round trip, including repeated dealers across cities and every run-length edge (len 1, long runs)
+rnd = _r26.Random(26)
+T = rd.FactTable(); exp26 = _C()
+sts_ = [f"S{i}" for i in range(9)]; cts_ = [f"C{i}" for i in range(60)]; dls_ = [f"{i} \u00b7 C{i % 60}, S{(i % 60) % 9}" for i in range(500)] + ["Unknown"]
+prs_ = [(f"B{i % 3}", f"U{i % 4}", f"M{i}") for i in range(30)]
+for _ in range(30000):
+    d = rnd.choice(dls_); c = rnd.choice(cts_) if d == "Unknown" else d.split(" \u00b7 ")[1].split(",")[0]
+    dt = None if rnd.random() < .05 else _dt26(2025, 4, 1) + _td26(days=rnd.randint(0, 600))
+    row = (rnd.choice(sts_), c, d, rnd.choice(prs_), rnd.choice(["Aug'2026", "Sep'2026", "Oct'2026"]), rnd.choice(["Organic", "Google", "Facebook"]), rnd.choice(["1105", "70", "103"]), dt)
+    T.add(*row); exp26[row[:7] + (dt.strftime("%Y-%m-%d") if dt else "",)] += 1
+check("30,000 random leads round-trip exactly", _C(rd.decode_fact(T.encode())) == exp26)
+big = rd.FactTable()
+try:
+    for i in range(1 << rd.FACT_BITS["state"]): big.add(f"S{i}", "c", "d", ("b", "u", "m"), "m", "x", "1", None)
+    big.add("one too many", "c", "d", ("b", "u", "m"), "m", "x", "1", None)
+    overflow_ok = False
+except ValueError as e:
+    overflow_ok = "widen FACT_BITS" in str(e)
+check("a dictionary outgrowing its bit width fails loudly instead of corrupting the table", overflow_ok)
+
 print(f"\n{'='*60}\n{PASS} passed, {FAIL_N} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if FAIL_N else 0)
