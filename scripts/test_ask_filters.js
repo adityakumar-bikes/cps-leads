@@ -23,8 +23,8 @@ const code = [
   // variants table, _askResolveVariants, _askModelActual, _askBrandOtherModels and the whole
   // filter-aware provider (cube index, aggregation, legacy + cube providers, filter notes)
   pick('const _ASK_VARIANTS = {', "// Some brands enter a single lump 'Paid' figure"),
-  pick('function _askModelDayActual(', 'function _askModelDailyTable('),
-  ';globalThis.__api={_askActuals,_askUseCube,_askNoAch,_askFilterNote,_askFilterText,_askCubeIdx,_askExtraFilters,_askNoAskBrands,_askNoAskNote,_askFoldNoAsk,_askOtherGroups,_askOtherDayGroups,_askDaySources,_askDaySourceRows};',
+  pick('function _askModelDayActual(', '</script>'),   // day-level helpers + the Daily Trend table
+  ';globalThis.__api={_askActuals,_askUseCube,_askNoAch,_askFilterNote,_askFilterText,_askCubeIdx,_askExtraFilters,_askNoAskBrands,_askNoAskNote,_askFoldNoAsk,_askOtherGroups,_askOtherDayGroups,_askRowDaySrc,_askPickSrc,_askModelDailyTable,_ASK_DAY_SRCS};',
 ].join('\n');
 
 // ── synthetic data ────────────────────────────────────────────────────────────────────────
@@ -106,7 +106,8 @@ for (const m of MODELS) {
   for (const dt of DATES.filter(Boolean)) { const v = sum((c) => c[0] === m && c[4] === dt); if (v) D.model_date[m][dt] = v; }
 }
 
-const ctx = {console, D, fState: [], fBU: [], fModel: [], fMedium: [], fBrand: [], fMonth: [], fIMS: ''};
+const MCOL = {Organic: '#27AE60', Google: '#3498DB', Facebook: '#1877F2', 'Non-MS': '#E67E22', Whatsapp: '#25D366'};
+const ctx = {console, D, MCOL, fState: [], fBU: [], fModel: [], fMedium: [], fBrand: [], fMonth: [], fIMS: ''};
 vm.createContext(ctx);
 vm.runInContext(code, ctx);
 const A = ctx.__api;
@@ -319,18 +320,41 @@ console.log('\n== Paid = CTWA (WhatsApp source) + Google + Facebook, per model /
   }
 }
 
-console.log('\n== Daily Trend by Source (day x source) ==');
+console.log('\n== Daily Trend: one row per model, one source at a time ==');
 {
   const okCell = (f, c) => (!f.state || f.state.includes(c[1])) && (!f.medium || f.medium.includes(c[2])) &&
                            (!f.model || f.model.includes(c[0])) && (!f.bu || f.bu.includes(BU[c[0]]));
   const days = DATES.filter((d) => d.startsWith('2026-10'));
   const norm = (o) => Object.fromEntries(Object.entries(o).sort());
   const bruteSrc = (f, models, dt) => { const o = {}; for (const c of cells) if (okCell(f, c) && models.includes(c[0]) && c[4] === dt) o[c[2]] = (o[c[2]] || 0) + c[5]; return o; };
+  const PAID = ['Whatsapp', 'Google', 'Facebook'];
+  const inSrc = (key, med) => key === 'all' ? true : key === 'paid' ? PAID.includes(med) : med === key;
+  const bruteDays = (f, models, key) => days.reduce((o, dt) => { const sm = bruteSrc(f, models, dt); o[dt] = Object.entries(sm).filter(([med]) => inSrc(key, med)).reduce((s, [, n]) => s + n, 0); return o; }, {});
   const cases = [['no filter (original aggregates)', {}], ['Source=Google+Organic', {medium: ['Google', 'Organic']}], ['State=Maharashtra', {state: ['Maharashtra']}],
                  ['Model=TVS iQube S', {model: ['TVS iQube S']}], ['BU=UB + State + Source', {bu: ['UB'], state: ['Karnataka'], medium: ['Facebook']}]];
+  const KEYS = ['all', 'paid', 'Whatsapp', 'Google', 'Facebook', 'Organic', 'Non-MS'];
+  const LABEL = {all: 'All Sources', paid: 'Paid', Whatsapp: 'CTWA', Google: 'Google', Facebook: 'Facebook', Organic: 'Organic', 'Non-MS': 'Non-MS'};
+  // read the Daily Trend HTML back: {sourceKey: {empty:bool, rows:{model:[total, day1, day2, ...]}, shown:bool}}
+  const strip = (t) => t.replace(/<[^>]*>/g, '').replace(/,/g, '').replace(/\s+/g, ' ').trim();
+  function readViews(html) {
+    const out = {};
+    for (const chunk of html.split('<div class="ask-day-view" data-src="').slice(1)) {
+      const key = chunk.slice(0, chunk.indexOf('"'));
+      const shown = /^[^>]*style="display:(?!none)/.test(chunk.slice(chunk.indexOf('"') + 1));
+      const hasTable = chunk.includes('<table');
+      const rows = {};
+      if (hasTable) for (const tr of chunk.match(/<tr[^>]*>[\s\S]*?<\/tr>/g).slice(1)) {
+        const cs = (tr.match(/<td[^>]*>[\s\S]*?<\/td>/g) || []).map(strip);
+        rows[cs[0].replace(/ · no ask$/, '')] = cs.slice(1).map((x) => (x === '—' ? 0 : Number(x)));
+      }
+      out[key] = {empty: !hasTable, rows, shown};
+    }
+    return out;
+  }
   for (const [label, f] of cases) {
     setF(f);
     const P = A._askActuals("Oct'2026");
+    // provider: leads per source on every day, per model
     const got = {}, want = {};
     for (const m of MODELS) for (const dt of days) { got[m + '|' + dt] = norm(P.daySrc([m], dt)); want[m + '|' + dt] = norm(bruteSrc(f, [m], dt)); }
     check(label + ': leads per source on every day, per model, match a brute-force count', got, want);
@@ -338,25 +362,75 @@ console.log('\n== Daily Trend by Source (day x source) ==');
     check(label + ': a folded Ask row sums its variants, per source', days.map((dt) => norm(P.daySrc(vs, dt))), days.map((dt) => norm(bruteSrc(f, vs, dt))));
     check(label + ': the sources of a day add up to that day\'s total', MODELS.every((m) => days.every((dt) => Object.values(P.daySrc([m], dt)).reduce((a, c) => a + c, 0) === P.day([m], dt))), true);
 
-    // the table rows the By Source view shows
-    const groups = MODELS.map((m) => [m]);
-    const bySrc = A._askDaySources(P, groups, '2026-10', 31);
+    // one row's source x day arrays, and the source choices picked out of them
+    const bySrc = A._askRowDaySrc(P, vs, '2026-10', 31);
     const wantBy = {};
-    for (const m of MODELS) for (const dt of days) { const d = parseInt(dt.slice(8), 10), sm = bruteSrc(f, [m], dt); for (const med in sm) (wantBy[med] || (wantBy[med] = new Array(32).fill(0)))[d] += sm[med]; }
-    check(label + ': By Source day-by-day totals per source', norm(bySrc), norm(wantBy));
-    const rows = A._askDaySourceRows(bySrc, 31);
-    const dayOf = (meds) => Array.from({length: 32}, (_, d) => meds.reduce((s, m) => s + ((wantBy[m] || [])[d] || 0), 0));
-    const byLabel = Object.fromEntries(rows.map((r) => [r.label, r]));
-    const allWant = dayOf(MEDIA), paidWant = dayOf(['Whatsapp', 'Google', 'Facebook']);
-    check(label + ': Paid row = CTWA + Google + Facebook, day by day', byLabel['Paid (CTWA + Google + FB)'] ? byLabel['Paid (CTWA + Google + FB)'].days : null, paidWant.some((v) => v) ? paidWant : null);
-    const allGot = Array.from({length: 32}, (_, d) => rows.filter((r) => r.kind !== 'sub').reduce((s, r) => s + r.days[d], 0));
-    check(label + ': All Sources (Paid + Organic + Non-MS) = every model\'s day total', allGot, Array.from({length: 32}, (_, d) => d ? MODELS.reduce((s, m) => s + P.day([m], '2026-10-' + String(d).padStart(2, '0')), 0) : 0));
-    check(label + ': sources without leads get no row; parts sit under Paid', [rows.every((r) => r.total > 0), rows.filter((r) => r.kind === 'sub').every((r) => ['CTWA (WhatsApp)', 'Google', 'Facebook'].includes(r.label))], [true, true]);
+    for (const dt of days) { const d = parseInt(dt.slice(8), 10), sm = bruteSrc(f, vs, dt); for (const med in sm) (wantBy[med] || (wantBy[med] = new Array(32).fill(0)))[d] += sm[med]; }
+    check(label + ': a row\'s leads per source and day', norm(bySrc), norm(wantBy));
+    const pick = (key) => A._askPickSrc(bySrc, key, 31);
+    const wantPick = (key) => Array.from({length: 32}, (_, d) => Object.entries(wantBy).filter(([med]) => inSrc(key, med)).reduce((s, [, a]) => s + a[d], 0));
+    check(label + ': All Sources / Paid (CTWA + Google + Facebook) / each source pick the right days', KEYS.map(pick), KEYS.map(wantPick));
+    check(label + ': a source the row never had is all zeros', pick('Weird').every((v) => v === 0) && pick('Weird').length === 32, true);
+
+    // the table itself, for the TVS brand
+    const askRows = Object.entries(D.ask_data["Oct'2026"].TVS).filter(([mn]) => P.askRowVisible(mn)).sort(([, a], [, b]) => b.t - a.t);
+    const html = A._askModelDailyTable(askRows, "Oct'2026", 31, 'TVS');
+    if (!html) { check(label + ': table rendered', 'empty', 'html'); continue; }
+    const views = readViews(html);
+    check(label + ': a view for All Sources, Paid and each source', Object.keys(views), KEYS);
+    check(label + ': a button for each, "All Sources" pressed and its table showing by default',
+          [KEYS.map((k) => new RegExp('<button class="pg-btn' + (k === 'all' ? ' active' : '') + '" data-src="' + k + '"').test(html)).every(Boolean), views.all.shown, KEYS.filter((k) => k !== 'all').some((k) => views[k].shown)], [true, true, false]);
+    // the rows an Ask row / no-Ask model contributes: groups of lead-data models
+    const TVSM = MODELS.filter((m) => BRAND[m] === 'TVS');
+    const groupsOf = {'TVS iQube': vs, 'TVS Raider': ['TVS Raider'], 'TVS Star City Plus': ['TVS Star City Plus']};
+    for (const key of KEYS) {
+      const v = views[key];
+      const wantRows = {};
+      for (const [name, ms] of Object.entries(groupsOf)) {
+        const d = bruteDays(f, ms, key), tot = Object.values(d).reduce((a, c) => a + c, 0);
+        if (tot > 0) wantRows[name] = [tot, ...Array.from({length: 31}, (_, i) => d['2026-10-' + String(i + 1).padStart(2, '0')] || 0)];
+      }
+      const allWant = Object.values(wantRows).reduce((acc, r) => acc.map((x, i) => x + r[i]), new Array(32).fill(0));
+      if (!Object.keys(wantRows).length) {
+        check(label + ' / ' + LABEL[key] + ': nothing from this source -> a message, not an empty table', [v.empty, /leads in Oct'2026 for this selection/.test(html)], [true, true]);
+      } else {
+        const { ['All Models']: allGot, ...modelRows } = v.rows;
+        check(label + ' / ' + LABEL[key] + ': every model row (total + each day) matches a brute-force count', norm(modelRows), norm(wantRows));
+        check(label + ' / ' + LABEL[key] + ': "All Models" is the sum of the rows, day by day', allGot, allWant);
+      }
+    }
+    // the order of rows: biggest first, within each source
+    const order = (key) => Object.entries(views[key].rows).filter(([n]) => n !== 'All Models').map(([, r]) => r[0]);
+    check(label + ': rows sorted biggest first in every view', KEYS.every((k) => order(k).every((x, i, a) => i === 0 || a[i - 1] >= x)), true);
+    // "paid" is exactly CTWA + Google + Facebook, model by model
+    const mrow = (k, n) => (views[k].rows[n] || [0])[0];
+    check(label + ': Paid = CTWA + Google + Facebook for every model', Object.keys(groupsOf).map((n) => mrow('paid', n)), Object.keys(groupsOf).map((n) => mrow('Whatsapp', n) + mrow('Google', n) + mrow('Facebook', n)));
   }
   setF({});
-  check('a source outside the usual five still gets its own row, so All Sources keeps adding up',
-        A._askDaySourceRows({Organic: [0, 1, 2], Weird: [0, 3, 0]}, 2).map((r) => [r.label, r.total, r.kind]), [['Organic', 3, 'main'], ['Weird', 3, 'main']]);
-  check('no leads at all -> no rows', A._askDaySourceRows({}, 5), []);
+  // the chosen source is remembered, and a table without that source falls back to All Sources
+  vm.runInContext("_askDaySrc='Google'", ctx);
+  {
+    const P = A._askActuals("Oct'2026");
+    const askRows = Object.entries(D.ask_data["Oct'2026"].TVS).sort(([, a], [, b]) => b.t - a.t);
+    const html = A._askModelDailyTable(askRows, "Oct'2026", 31, 'TVS');
+    const v = readViews(html);
+    check('the remembered source (Google) is the table showing, and its button is the pressed one', [v.Google.shown, v.all.shown, /<button class="pg-btn active" data-src="Google"/.test(html)], [true, false, true]);
+    vm.runInContext("_askDaySrc='Nope'", ctx);
+    const v2 = readViews(A._askModelDailyTable(askRows, "Oct'2026", 31, 'TVS'));
+    check('a remembered source this table does not have falls back to All Sources', [v2.all.shown, Object.keys(v2).includes('Nope')], [true, false]);
+    vm.runInContext("_askDaySrc='all'", ctx);
+  }
+  // a source outside the usual five still counts and gets its own button
+  {
+    const saved = D.model_medium_date['TVS Raider'];
+    D.model_medium_date['TVS Raider'] = Object.assign({}, saved, {Weird: {'2026-10-02': 7}});
+    const askRows = Object.entries(D.ask_data["Oct'2026"].TVS).sort(([, a], [, b]) => b.t - a.t);
+    const html = A._askModelDailyTable(askRows, "Oct'2026", 31, 'TVS');
+    const v = readViews(html);
+    check('an unusual source gets a button and a view, and is part of All Sources', [Object.keys(v).includes('Weird'), v.Weird.rows['TVS Raider'] && v.Weird.rows['TVS Raider'][0], /data-src="Weird"/.test(html)], [true, 7, true]);
+    D.model_medium_date['TVS Raider'] = saved;
+  }
+  check('no leads at all for a brand -> the "no daily data" message instead of tables', /No daily data/.test(A._askModelDailyTable([], "Oct'2026", 31, 'Nobody')), true);
 }
 
 console.log(`\n${'='.repeat(60)}\n${pass} passed, ${fail} failed`);

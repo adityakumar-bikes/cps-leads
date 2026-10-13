@@ -3942,49 +3942,40 @@ function _askModelDaySrc(variants,dateStr){
   }
   return out;
 }
-// Daily Trend view switch: 'model' (a row per model) or 'source' (a row per lead source). One choice for every brand.
-let _askDayView='model';
-function _askSetDayView(v){
-  _askDayView=v;
-  document.querySelectorAll('.ask-day-model').forEach(e=>{e.style.display=v==='model'?'':'none';});
-  document.querySelectorAll('.ask-day-source').forEach(e=>{e.style.display=v==='source'?'':'none';});
-  document.querySelectorAll('.ask-dayview button').forEach(b=>b.classList.toggle('active',b.dataset.v===v));
-}
-// Leads per source and day for the same model groups the By Model rows are built from (so the two views add up to the
-// same days). groups = [[lead-data models behind one row], ...] -> {source: [0, day 1, day 2, ...]}.
-function _askDaySources(P,groups,prefix,totalDays){
+// Leads per source and day behind one Daily Trend row (its lead-data models): {source: [0, day 1, day 2, ...]}.
+function _askRowDaySrc(P,variants,prefix,totalDays){
   const bySrc={};
-  for(const variants of groups){
-    for(let d=1;d<=totalDays;d++){
-      const sm=P.daySrc(variants,prefix+'-'+String(d).padStart(2,'0'));
-      for(const med in sm){
-        const a=bySrc[med]||(bySrc[med]=new Array(totalDays+1).fill(0));
-        a[d]+=sm[med];
-      }
+  for(let d=1;d<=totalDays;d++){
+    const sm=P.daySrc(variants,prefix+'-'+String(d).padStart(2,'0'));
+    for(const med in sm){
+      const a=bySrc[med]||(bySrc[med]=new Array(totalDays+1).fill(0));
+      a[d]+=sm[med];
     }
   }
   return bySrc;
 }
-// Rows of the By Source view: Paid (CTWA + Google + Facebook) with its three parts, Organic, Non-MS, and any other source
-// the data carries. {label, kind: 'paid'|'sub'|'main', med, days:[0,d1,...], total}; rows with no leads are left out.
-function _askDaySourceRows(bySrc,totalDays){
-  const sumOf=(names)=>{
-    const a=new Array(totalDays+1).fill(0);
-    for(const n of names){const s=bySrc[n];if(s)for(let d=1;d<=totalDays;d++)a[d]+=s[d];}
-    return a;
-  };
-  const known=['Whatsapp','Google','Facebook','Organic','Non-MS'];
-  const other=Object.keys(bySrc).filter(n=>!known.includes(n)).sort();
-  const spec=[
-    ['Paid (CTWA + Google + FB)',['Whatsapp','Google','Facebook'],'paid',null],
-    ['CTWA (WhatsApp)',['Whatsapp'],'sub','Whatsapp'],
-    ['Google',['Google'],'sub','Google'],
-    ['Facebook',['Facebook'],'sub','Facebook'],
-    ['Organic',['Organic'],'main','Organic'],
-    ['Non-MS',['Non-MS'],'main','Non-MS'],
-    ...other.map(n=>[n,[n],'main',n])
-  ];
-  return spec.map(([label,names,kind,med])=>{const days=sumOf(names);return{label,kind,med,days,total:days.reduce((a,c)=>a+c,0)};}).filter(r=>r.total>0);
+// The days of one source choice out of {source: [...]}: 'all' = every source, 'paid' = CTWA (the WhatsApp source) + Google +
+// Facebook, anything else = that source. -> [0, day 1, day 2, ...]
+function _askPickSrc(bySrc,key,totalDays){
+  const names=key==='all'?Object.keys(bySrc):key==='paid'?['Whatsapp','Google','Facebook']:[key];
+  const a=new Array(totalDays+1).fill(0);
+  for(const n of names){const s=bySrc[n];if(s)for(let d=1;d<=totalDays;d++)a[d]+=s[d];}
+  return a;
+}
+// The source choices above the Daily Trend: [key, label, hover text]
+const _ASK_DAY_SRCS=[['all','All Sources','Every source'],['paid','Paid','CTWA + Google + Facebook'],
+  ['Whatsapp','CTWA','Click-to-WhatsApp: leads whose source is WhatsApp'],['Google','Google',''],['Facebook','Facebook',''],
+  ['Organic','Organic',''],['Non-MS','Non-MS','']];
+// Which source the Daily Trend tables show — one choice for every brand.
+let _askDaySrc='all';
+function _askSetDaySrc(key){
+  _askDaySrc=key;
+  document.querySelectorAll('.ask-day-wrap').forEach(w=>{
+    const views=[...w.querySelectorAll('.ask-day-view')];
+    const show=views.some(e=>e.dataset.src===key)?key:'all';   // a table that has no such source (rare names) falls back to All
+    views.forEach(e=>{e.style.display=e.dataset.src===show?'':'none';});
+    w.querySelectorAll('.ask-daysrc button').forEach(btn=>btn.classList.toggle('active',btn.dataset.src===show));
+  });
 }
 function _askModelDailyTable(rows,month,totalDays,brand){
   const P=_askActuals(month);
@@ -3997,26 +3988,11 @@ function _askModelDailyTable(rows,month,totalDays,brand){
   const monthNames={Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',
                     Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
   const prefix=mParts[2]+'-'+(monthNames[mParts[1]]||'00');
-  const dayTotals=new Array(totalDays+1).fill(0);   // 1-indexed
-  let anyData=false;
-  const buildDays=(variants)=>{
-    const days=[];
-    for(let d=1;d<=totalDays;d++){
-      const ds=prefix+'-'+String(d).padStart(2,'0');
-      const v=P.day(variants,ds);
-      days.push(v);
-      if(v){anyData=true;dayTotals[d]+=v;}
-    }
-    return days;
-  };
   const covered=new Set();
-  const groups=[];   // the lead-data models behind each row — the By Source view counts exactly the same ones
   const modelDays=withActual.map(([model])=>{
     const vs=_askResolveVariants(model,month);
     vs.forEach(v=>covered.add(v));
-    groups.push(vs);
-    const days=buildDays(vs);
-    return {model,days,total:days.reduce((a,c)=>a+c,0)};
+    return {model,bySrc:_askRowDaySrc(P,vs,prefix,totalDays)};
   });
   // The rows above only cover models that have an Ask target. A brand usually
   // has extra live models with no Ask target set (e.g. TVS Apache RTR 160 4V) —
@@ -4024,75 +4000,67 @@ function _askModelDailyTable(rows,month,totalDays,brand){
   // brand's real day-by-day total instead of silently under-counting it.
   if(brand){
     for(const g of _askOtherDayGroups(P,brand,covered,prefix)){
-      groups.push(g.members);
-      const days=buildDays(g.members);
-      modelDays.push({model:g.name,noAsk:true,days,total:days.reduce((a,c)=>a+c,0)});
+      modelDays.push({model:g.name,noAsk:true,bySrc:_askRowDaySrc(P,g.members,prefix,totalDays)});
     }
   }
-  if(!anyData)return `<div style="color:var(--muted);font-size:.82rem;padding:8px 0 4px">No daily data for ${month} yet.</div>`;
+  const sumOf=(a)=>a.reduce((x,y)=>x+y,0);
+  for(const r of modelDays){r.days=_askPickSrc(r.bySrc,'all',totalDays);r.total=sumOf(r.days);}
+  if(!modelDays.some(r=>r.total>0))return `<div style="color:var(--muted);font-size:.82rem;padding:8px 0 4px">No daily data for ${month} yet.</div>`;
   modelDays.sort((a,b)=>b.total-a.total);
-  const grandTotal=dayTotals.reduce((a,c)=>a+c,0);
-  let h=`<div class="ctitle-row" style="margin-top:14px;justify-content:flex-start;gap:14px;flex-wrap:wrap"><div class="ctitle" style="font-size:.85rem">📅 Daily Trend — ${month}</div>
-    <div class="ask-dayview" style="display:flex;gap:6px" title="What the rows of the daily trend are: one per model, or one per lead source">
-      <button class="pg-btn${_askDayView==='model'?' active':''}" data-v="model" onclick="_askSetDayView('model')">By Model</button>
-      <button class="pg-btn${_askDayView==='source'?' active':''}" data-v="source" onclick="_askSetDayView('source')">By Source</button>
-    </div></div>
-  <div class="ask-day-model" style="display:${_askDayView==='model'?'':'none'}">
-  <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+  // source choices: the usual ones, plus any other source the data carries
+  const known=_ASK_DAY_SRCS.map(x=>x[0]);
+  const extra=[...new Set(modelDays.flatMap(r=>Object.keys(r.bySrc)))].filter(n=>!known.includes(n)).sort();
+  const choices=[..._ASK_DAY_SRCS,...extra.map(n=>[n,n,''])];
+  const shown=choices.some(c=>c[0]===_askDaySrc)?_askDaySrc:'all';
+  const attr=(s)=>String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+  const dot=(key)=>MCOL[key]?`<span style="color:${MCOL[key]}">●</span> `:'';
+  let h=`<div class="ask-day-wrap"><div class="ctitle-row" style="margin-top:14px;justify-content:flex-start;gap:14px;flex-wrap:wrap"><div class="ctitle" style="font-size:.85rem">📅 Daily Trend — ${month}</div>
+    <div class="ask-daysrc" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span style="font-size:.74rem;color:var(--muted)">Source</span>`;
+  for(const [key,label,tip] of choices){
+    h+=`<button class="pg-btn${shown===key?' active':''}" data-src="${attr(key)}" title="${attr(tip||label)}" onclick="_askSetDaySrc(this.dataset.src)">${dot(key)}${label}</button>`;
+  }
+  h+=`</div></div>`;
+  for(const [key,label] of choices){
+    const disp=shown===key?'':'none';
+    const list=modelDays.map(r=>{const days=key==='all'?r.days:_askPickSrc(r.bySrc,key,totalDays);return {model:r.model,noAsk:r.noAsk,days,total:sumOf(days)};})
+                        .filter(r=>r.total>0);
+    if(key!=='all')list.sort((a,b)=>b.total-a.total);   // stable: models tied on this source keep their All Sources order
+    if(!list.length){
+      h+=`<div class="ask-day-view" data-src="${attr(key)}" style="display:${disp};color:var(--muted);font-size:.82rem;padding:8px 0 4px">No ${label==='All Sources'?'':label+' '}leads in ${month} for this selection.</div>`;
+      continue;
+    }
+    const dayTotals=new Array(totalDays+1).fill(0);   // 1-indexed
+    for(const r of list)for(let d=1;d<=totalDays;d++)dayTotals[d]+=r.days[d];
+    const grandTotal=sumOf(dayTotals);
+    h+=`<div class="ask-day-view" data-src="${attr(key)}" style="display:${disp}">`;
+    if(key!=='all')h+=`<div style="font-size:.74rem;color:var(--muted);margin:2px 0 0">${key==='paid'?'Paid = CTWA + Google + Facebook leads':label+' leads only'} — models with none are left out.</div>`;
+    h+=`<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
   <table class="tbl" style="font-size:.72rem;border-collapse:collapse;margin:4px 0 8px"><thead><tr>
     <th style="text-align:left;min-width:150px;padding:5px 8px;position:sticky;left:0;background:var(--card);z-index:2">Model</th>
     <th class="num" style="min-width:52px;padding:5px 4px">Total</th>`;
-  for(let d=1;d<=totalDays;d++){h+=`<th class="num" style="min-width:32px;padding:5px 3px">${d}</th>`;}
-  h+=`</tr></thead><tbody>
+    for(let d=1;d<=totalDays;d++){h+=`<th class="num" style="min-width:32px;padding:5px 3px">${d}</th>`;}
+    h+=`</tr></thead><tbody>
   <tr style="border-bottom:2px solid var(--border);font-weight:700;background:rgba(108,99,255,.06)">
     <td style="text-align:left;padding:4px 8px;position:sticky;left:0;background:rgba(108,99,255,.06)">All Models</td>
     <td class="num">${grandTotal.toLocaleString()}</td>`;
-  for(let d=1;d<=totalDays;d++){
-    const v=dayTotals[d];
-    h+=`<td class="num">${v?v.toLocaleString():'<span style="color:#8b949e">—</span>'}</td>`;
-  }
-  h+=`</tr>`;
-  for(const {model,days,total,noAsk} of modelDays){
-    if(!total)continue;
-    h+=`<tr>
-      <td style="text-align:left;padding:4px 8px;position:sticky;left:0;background:var(--card);font-weight:500;white-space:nowrap">${model}${noAsk?' <span style="color:var(--muted);font-weight:400;font-size:.9em">· no ask</span>':''}</td>
-      <td class="num" style="font-weight:600">${total.toLocaleString()}</td>`;
-    for(const v of days){
-      h+=`<td class="num">${v?v:'<span style="color:#8b949e">—</span>'}</td>`;
+    for(let d=1;d<=totalDays;d++){
+      const v=dayTotals[d];
+      h+=`<td class="num">${v?v.toLocaleString():'<span style="color:#8b949e">—</span>'}</td>`;
     }
     h+=`</tr>`;
+    for(const {model,days,total,noAsk} of list){
+      h+=`<tr>
+      <td style="text-align:left;padding:4px 8px;position:sticky;left:0;background:var(--card);font-weight:500;white-space:nowrap">${model}${noAsk?' <span style="color:var(--muted);font-weight:400;font-size:.9em">· no ask</span>':''}</td>
+      <td class="num" style="font-weight:600">${total.toLocaleString()}</td>`;
+      for(let d=1;d<=totalDays;d++){
+        const v=days[d];
+        h+=`<td class="num">${v?v:'<span style="color:#8b949e">—</span>'}</td>`;
+      }
+      h+=`</tr>`;
+    }
+    h+=`</tbody></table></div></div>`;
   }
-  h+=`</tbody></table></div></div>`;
-  // ── By Source: the same days, one row per lead source ───────────────────────────────────────
-  const srcRows=_askDaySourceRows(_askDaySources(P,groups,prefix,totalDays),totalDays);
-  const allDays=new Array(totalDays+1).fill(0);
-  for(const r of srcRows)if(r.kind!=='sub')for(let d=1;d<=totalDays;d++)allDays[d]+=r.days[d];
-  const allTot=allDays.reduce((a,c)=>a+c,0);
-  const cell=(v)=>`<td class="num">${v?v.toLocaleString():'<span style="color:#8b949e">—</span>'}</td>`;
-  h+=`<div class="ask-day-source" style="display:${_askDayView==='source'?'':'none'}">
-  <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-  <table class="tbl" style="font-size:.72rem;border-collapse:collapse;margin:4px 0 8px"><thead><tr>
-    <th style="text-align:left;min-width:170px;padding:5px 8px;position:sticky;left:0;background:var(--card);z-index:2">Source</th>
-    <th class="num" style="min-width:52px;padding:5px 4px">Total</th>
-    <th class="num" style="min-width:46px;padding:5px 4px" title="Share of all leads in the month">Mix</th>`;
-  for(let d=1;d<=totalDays;d++){h+=`<th class="num" style="min-width:32px;padding:5px 3px">${d}</th>`;}
-  h+=`</tr></thead><tbody>
-  <tr style="border-bottom:2px solid var(--border);font-weight:700;background:rgba(108,99,255,.06)">
-    <td style="text-align:left;padding:4px 8px;position:sticky;left:0;background:rgba(108,99,255,.06)">All Sources</td>
-    <td class="num">${allTot.toLocaleString()}</td><td class="num">${allTot?'100%':'—'}</td>`;
-  for(let d=1;d<=totalDays;d++)h+=cell(allDays[d]);
-  h+=`</tr>`;
-  for(const r of srcRows){
-    const dot=r.med?`<span style="color:${MCOL[r.med]||'#8b949e'}">●</span> `:'';
-    const label=r.kind==='sub'?`<span style="padding-left:14px;color:var(--muted)">↳</span> ${dot}${r.label}`:`${dot}${r.label}`;
-    h+=`<tr${r.kind==='paid'?' style="background:rgba(108,99,255,.03)"':''}>
-      <td style="text-align:left;padding:4px 8px;position:sticky;left:0;background:var(--card);font-weight:${r.kind==='sub'?500:600};white-space:nowrap">${label}</td>
-      <td class="num" style="font-weight:600">${r.total.toLocaleString()}</td>
-      <td class="num" style="color:var(--muted)">${allTot?(r.total/allTot*100).toFixed(1)+'%':'—'}</td>`;
-    for(let d=1;d<=totalDays;d++)h+=cell(r.days[d]);
-    h+=`</tr>`;
-  }
-  h+=`</tbody></table></div></div>`;
+  h+=`</div>`;
   return h;
 }
 </script>
