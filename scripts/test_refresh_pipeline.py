@@ -663,7 +663,7 @@ check("both date formats parse; missing dates are stored as none", any(r[-1] == 
 check("dates outside the representable range are counted as unusable, not crashed on", sum(1 for r in dec26 if r[1] == "Delhi" and r[-1] == "") == 3)
 check("rows from skipped months are not in the table", all(r[4] != "Mar'2025" for r in dec26) and f26["n"] == len(dec26))
 tot26 = {"brand": d26["by_brand"], "bu": d26["by_bu"], "model": d26["by_model"], "state": d26["by_state"], "city": d26["by_city"],
-         "dealer": d26["by_dealer"], "medium": d26["by_medium"], "month": d26["by_month"], "lt": d26["by_lt"]}
+         "dealer": dict(_C(r[2] for r in dec26)), "medium": d26["by_medium"], "month": d26["by_month"], "lt": d26["by_lt"]}
 check("fact_check: every 1-D aggregate reconciles with the table", rd.fact_check(f26, tot26) == [], rd.fact_check(f26, tot26))
 bad26 = {k: dict(v) for k, v in tot26.items()}; bad26["medium"]["Google"] += 1
 check("fact_check notices a single-lead discrepancy", len(rd.fact_check(f26, bad26)) == 1)
@@ -680,6 +680,24 @@ for _ in range(30000):
     row = (rnd.choice(sts_), c, d, rnd.choice(prs_), rnd.choice(["Aug'2026", "Sep'2026", "Oct'2026"]), rnd.choice(["Organic", "Google", "Facebook"]), rnd.choice(["1105", "70", "103"]), dt)
     T.add(*row); exp26[row[:7] + (dt.strftime("%Y-%m-%d") if dt else "",)] += 1
 check("30,000 random leads round-trip exactly", _C(rd.decode_fact(T.encode())) == exp26)
+# a column drifting against another leaves every 1-D total intact; the joint check against the Ask cube must see it
+_orig_add = rd.FactTable.add
+_seen = {"a": False, "b": False}
+def _swap_states(self, state, city, dealer, product, month, medium, lt, lead_dt):
+    if state == "Maharashtra" and medium == "Google" and not _seen["a"]:
+        _seen["a"] = True; state = "Bihar"
+    elif state == "Bihar" and medium == "Organic" and not _seen["b"]:
+        _seen["b"] = True; state = "Maharashtra"
+    return _orig_add(self, state, city, dealer, product, month, medium, lt, lead_dt)
+rd.FactTable.add = _swap_states
+try:
+    d26t = rd.build_aggregations(_fx_rows())
+finally:
+    rd.FactTable.add = _orig_add
+_probs = d26t["fact"].get("problems", [])
+check("two leads swapping states (1-D totals unchanged) are caught by the joint check against the Ask cube",
+      len(_probs) == 1 and "model x state x source x month" in _probs[0], _probs)
+check("a clean build reports no problems", "problems" not in d26["fact"])
 big = rd.FactTable()
 try:
     for i in range(1 << rd.FACT_BITS["state"]): big.add(f"S{i}", "c", "d", ("b", "u", "m"), "m", "x", "1", None)

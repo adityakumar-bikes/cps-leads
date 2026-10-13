@@ -1365,6 +1365,8 @@ def fact_check(fact, totals):
 
 
 def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
+    # oem_data is accepted for compatibility but no longer used here: the page derives each lead's OEM priority
+    # tier from D.oem_data and the lead table's brand / BU / city.
     # Canonical model names
     model_cases = defaultdict(Counter)
     for r in all_rows:
@@ -1385,21 +1387,14 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
     brands_set = set()
     partial_brands = set()
 
-    # Counters
+    # Counters. Everything the tabs filter and cut goes through the lead table (FactTable, below); what is kept
+    # here is only what the dashboard still reads directly: totals, the small lookup maps behind the filter
+    # drop-downs, and the month/model/day sections the Ask vs Actual tab reads.
     by_brand = {}; by_medium = {}; by_state = {}; by_city = {}
     by_model = {}; by_month = {}; by_dealer = {}; by_lt = {}
-    brand_month = defaultdict(dict); brand_medium = defaultdict(dict)
-    brand_lt = defaultdict(dict); brand_model = defaultdict(dict)
-    state_brand = defaultdict(dict); state_medium = defaultdict(dict)
-    state_lt = defaultdict(dict)
-    city_brand = defaultdict(dict); city_medium = defaultdict(dict)
+    brand_month = defaultdict(dict); brand_model = defaultdict(dict)
     city_state_ctr = defaultdict(Counter)
-    dealer_brand = defaultdict(dict); dealer_state = defaultdict(dict)
-    dealer_medium = defaultdict(dict); dealer_month = defaultdict(dict)
-    model_dealer = defaultdict(dict)
-    medium_month = defaultdict(dict); lt_medium = defaultdict(dict)
-    lt_month = defaultdict(dict); model_brand = defaultdict(dict)
-    model_medium = defaultdict(dict)
+    model_brand = defaultdict(dict)
     model_medium_month = defaultdict(lambda: defaultdict(dict))  # model → medium → month → count
                                       # (mirrors brand_medium_month — powers the Ask vs Actual
                                       # tab's model-level Actual column when Source is filtered)
@@ -1408,34 +1403,15 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
     model_medium_date = defaultdict(lambda: defaultdict(dict))  # model → medium → date → count
                                       # (same rolling window trim — powers the Ask vs Actual
                                       # daily-trend table when the top-bar Source filter is set)
-    state_month  = defaultdict(dict); city_month  = defaultdict(dict)
     model_month  = defaultdict(dict)
     brand_medium_month = defaultdict(lambda: defaultdict(dict))  # brand → medium → month → count
-    state_medium_month = defaultdict(lambda: defaultdict(dict))  # state → medium → month → count
-    city_medium_month  = defaultdict(lambda: defaultdict(dict))  # city  → medium → month → count
-    lt_medium_month    = defaultdict(lambda: defaultdict(dict))  # leadtype → medium → month → count
-    # Exact cross-sections for zero-approximation filtering in the dashboard
-    state_brand_month = defaultdict(lambda: defaultdict(dict))   # state → brand → month → count
-    city_brand_month  = defaultdict(lambda: defaultdict(dict))   # city  → brand → month → count
-    state_bu_month    = defaultdict(lambda: defaultdict(dict))   # state → bu    → month → count
 
     # BU counters
     by_bu = {}
-    bu_brand  = defaultdict(dict); bu_medium = defaultdict(dict)
-    bu_month  = defaultdict(dict); bu_state  = defaultdict(dict)
-    bu_city   = defaultdict(dict); bu_dealer = defaultdict(dict)
-    bu_lt     = defaultdict(dict); bu_model  = defaultdict(dict)
-    bu_city_month = defaultdict(lambda: defaultdict(dict))   # bu → city → month → count
-    bu_medium_month = defaultdict(lambda: defaultdict(dict)) # bu → medium → month → count
-    bu_pri_date = defaultdict(lambda: defaultdict(dict))     # bu → priority → date → count
+    bu_brand  = defaultdict(dict); bu_month  = defaultdict(dict)
+    bu_model  = defaultdict(dict)
     model_bu_map = {}   # model (canonical case) → BU string
 
-    # Build city→priority lookup from oem_data for bu_pri_date aggregation
-    _city_pri = {}  # (bu, city_lower) → priority label
-    for _b, _bus in (oem_data or {}).items():
-        for _bu, _cities in _bus.items():
-            for _city, _od in _cities.items():
-                _city_pri[(_bu, _city.lower())] = _od.get("p", "ROI")
     dealer_code_map = {}  # dealer_key → verified_dealer code
     dealer_name_map = {}  # dealer_key → Dealer_Name
     brand_date_min = {}   # brand → earliest lead date (datetime)
@@ -1512,57 +1488,24 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
         inc(by_dealer, dealer); inc(by_lt,      lt)
 
         inc(brand_month[brand],   month)
-        inc(brand_medium[brand],  medium)
         inc(brand_medium_month[brand][medium], month)
-        inc(brand_lt[brand],      lt)
         inc(brand_model[brand],   model)
-        inc(state_brand[state],   brand)
-        inc(state_medium[state],  medium)
-        inc(state_medium_month[state][medium], month)
-        inc(state_lt[state],      lt)
-        inc(city_brand[city],     brand)
-        inc(city_medium[city],    medium)
-        inc(city_medium_month[city][medium], month)
         city_state_ctr[city][state] += 1
-        inc(dealer_brand[dealer],  brand)
-        inc(dealer_state[dealer],  state)
-        inc(dealer_medium[dealer], medium)
-        inc(dealer_month[dealer],  month)
-        inc(model_dealer[model],   dealer)
-        inc(medium_month[medium], month)
-        inc(lt_medium[lt],        medium)
-        inc(lt_medium_month[lt][medium], month)
-        inc(lt_month[lt],         month)
         inc(model_brand[model],   brand)
-        inc(model_medium[model],  medium)
-        inc(state_month[state],   month)
-        inc(city_month[city],     month)
         inc(model_month[model],   month)
         inc(model_medium_month[model][medium], month)
-        inc(state_brand_month[state][brand], month)
-        inc(city_brand_month[city][brand],   month)
 
         # BU aggregations — mapped models use the xlsx BU, all others fall back to pre-alias brand
         bu = normalize_bu(model_to_bu.get(model.lower(), brand_raw) if model_to_bu else brand_raw)
         inc(by_bu,          bu)
         inc(bu_brand[bu],   brand)
-        inc(bu_medium[bu],  medium)
         inc(bu_month[bu],   month)
-        inc(bu_medium_month[bu][medium], month)
-        inc(bu_state[bu],   state)
-        inc(bu_city[bu],    city)
-        if city and month: inc(bu_city_month[bu][city], month)
         if lead_dt:
             date_str = lead_dt.strftime("%Y-%m-%d")
-            pri = _city_pri.get((bu, city.lower() if city else ""), "ROI")
-            inc(bu_pri_date[bu][pri], date_str)
             inc(model_date[model], date_str)
             inc(model_medium_date[model][medium], date_str)
         if month in ask_cube_months:
             ask_cube[(model, state, medium, month, date_str if lead_dt else "")] += 1
-        inc(state_bu_month[state][bu], month)
-        inc(bu_dealer[bu],  dealer)
-        inc(bu_lt[bu],      lt)
         inc(bu_model[bu],   model)
         model_bu_map[model] = bu
         fact.add(state, city, dealer, (brand, bu, model), month, medium, lt, lead_dt)
@@ -1620,6 +1563,32 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
     _problems = fact_check(fact_out, {
         "brand": by_brand, "bu": by_bu, "model": by_model, "state": by_state, "city": by_city, "dealer": by_dealer,
         "medium": by_medium, "month": by_month, "lt": by_lt})
+    # The 1-D totals can't see one column drifting against another, so also check the table grouped by
+    # (model, state, medium, month) against the Ask cube, which is built separately from the same rows.
+    if ask_cube:
+        sh = fact._shift
+        bits = FACT_BITS
+        blk_bits = bits["product"] + bits["month"] + bits["medium"]       # product | month | medium sit side by side
+        blk_mask = (1 << blk_bits) - 1
+        st_mask = (1 << bits["state"]) - 1
+        s_med, s_state = sh["medium"], sh["state"]
+        joint = Counter()
+        for k in fact.keys:
+            joint[(((k >> s_state) & st_mask) << blk_bits) | ((k >> s_med) & blk_mask)] += 1
+        inv = {f: {i: v for v, i in fact.ids[f].items()} for f in ("state", "product", "month", "medium")}
+        pm, mm, em = (1 << bits["product"]) - 1, (1 << bits["month"]) - 1, (1 << bits["medium"]) - 1
+        got4 = Counter()
+        for key, n in joint.items():
+            mo = inv["month"][(key >> bits["medium"]) & mm]
+            if mo in ask_cube_months:
+                got4[(inv["product"][(key >> (bits["medium"] + bits["month"])) & pm][2], inv["state"][key >> blk_bits],
+                      inv["medium"][key & em], mo)] += n
+        want4 = Counter()
+        for (mdl, st_, med_, mon_, _d), n in ask_cube.items():
+            want4[(mdl, st_, med_, mon_)] += n
+        if got4 != want4:
+            _diff = {k: (got4.get(k, 0), want4.get(k, 0)) for k in set(got4) | set(want4) if got4.get(k, 0) != want4.get(k, 0)}
+            _problems.append(f"model x state x source x month: {len(_diff)} cell(s) differ from the Ask cube (table, cube), e.g. {dict(list(_diff.items())[:2])}")
     print(f"  Fact table: {fact_out['n']:,} leads, {fact_out['bytes_raw'] / 1e6:.1f} MB raw -> "
           f"{fact_out['bytes_packed'] / 1e6:.1f} MB deflated" + (f" ({fact.bad_dates:,} unusable dates)" if fact.bad_dates else "")
           + ("; reconciles with every aggregate" if not _problems else "; MISMATCH vs aggregates: " + "; ".join(_problems)))
@@ -1653,6 +1622,10 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
         }
         model_medium_date = {m: meds for m, meds in model_medium_date.items() if meds}
 
+    # Display names / CRM codes of the dealers travel with the lead table, aligned with its dealer list
+    fact_out["dealer_names"] = [dealer_name_map.get(d, "") for d in fact_out["dealers"]]
+    fact_out["dealer_codes"] = [dealer_code_map.get(d, "") for d in fact_out["dealers"]]
+
     return {
         "total":         sum(by_brand.values()),
         "brands_all":    brands_all,
@@ -1665,35 +1638,14 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
         "by_city":       srt(by_city),
         "by_model":      srt(by_model),
         "by_month":      {m: by_month.get(m,0) for m in months_present},
-        "by_dealer":     srt(by_dealer),
         "by_lt":         srt(by_lt),
         "brand_month":   {k: {m: v.get(m,0) for m in months_present} for k,v in brand_month.items()},
         "brand_medium_month": {b: {med: {m: v.get(m,0) for m in months_present}
                                for med, v in meds.items()}
                                for b, meds in brand_medium_month.items()},
-        "brand_medium":  dict(brand_medium),
-        "brand_lt":      dict(brand_lt),
         "brand_model":   dict(brand_model),
-        "state_brand":   dict(state_brand),
-        "state_medium":  dict(state_medium),
-        "state_medium_month": {s: {med: {m: v.get(m,0) for m in months_present} for med,v in mm.items()} for s,mm in state_medium_month.items()},
-        "lt_medium_month": {lt: {med: {m: v.get(m,0) for m in months_present} for med,v in mm.items()} for lt,mm in lt_medium_month.items()},
-        "state_lt":      dict(state_lt),
-        "city_brand":    dict(city_brand),
-        "city_medium":   dict(city_medium),
-        # zero-filtered to keep the blob small — cities are ~2k and mostly sparse
-        "city_medium_month": {c: {med: {m: n for m,n in v.items() if n} for med,v in mm.items()} for c,mm in city_medium_month.items()},
         "city_state":    {c: s.most_common(1)[0][0] for c, s in city_state_ctr.items()},
-        "dealer_brand":  dict(dealer_brand),
-        "dealer_state":  dict(dealer_state),
-        "dealer_medium": dict(dealer_medium),
-        "dealer_month":  {k: {m: v.get(m,0) for m in months_present} for k,v in dealer_month.items()},
-        "model_dealer":  dict(model_dealer),
-        "medium_month":  {k: {m: v.get(m,0) for m in months_present} for k,v in medium_month.items()},
-        "lt_medium":     dict(lt_medium),
-        "lt_month":      {k: {m: v.get(m,0) for m in months_present} for k,v in lt_month.items()},
         "model_brand":   dict(model_brand),
-        "model_medium":  dict(model_medium),
         "model_medium_month": {mo: {med: {m: v.get(m,0) for m in months_present}
                                for med, v in meds.items()}
                                for mo, meds in model_medium_month.items()},
@@ -1703,35 +1655,9 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
         "fact":          fact_out,
         "by_bu":         srt(by_bu),
         "bu_brand":      dict(bu_brand),
-        "bu_medium":     dict(bu_medium),
         "bu_month":      {k: {m: v.get(m,0) for m in months_present} for k,v in bu_month.items()},
-        "bu_medium_month": {bu: {med: {m: v.get(m,0) for m in months_present}
-                            for med, v in meds.items()}
-                            for bu, meds in bu_medium_month.items()},
-        "bu_state":      dict(bu_state),
-        "bu_city":       dict(bu_city),
-        "bu_city_month": {bu: {city: {m: v.get(m,0) for m in months_present}
-                               for city, v in cities.items()}
-                          for bu, cities in bu_city_month.items()},
-        "bu_pri_date":   {bu: {pri: dict(dates) for pri, dates in pris.items()}
-                          for bu, pris in bu_pri_date.items()},
-        "bu_dealer":     dict(bu_dealer),
-        "bu_lt":         dict(bu_lt),
         "bu_model":      dict(bu_model),
         "model_bu":      model_bu_map,
-        "dealer_code":   dealer_code_map,
-        "dealer_name":   dealer_name_map,
-        "state_month":   {k: {m: v.get(m,0) for m in months_present} for k,v in state_month.items()},
-        "city_month":    {k: {m: v.get(m,0) for m in months_present} for k,v in city_month.items()},
-        "state_brand_month": {s: {b: {m: v.get(m,0) for m in months_present}
-                               for b,v in bm.items()}
-                               for s,bm in state_brand_month.items()},
-        "city_brand_month":  {c: {b: {m: v.get(m,0) for m in months_present}
-                               for b,v in bm.items()}
-                               for c,bm in city_brand_month.items()},
-        "state_bu_month":    {s: {bu: {m: v.get(m,0) for m in months_present}
-                               for bu,v in bm.items()}
-                               for s,bm in state_bu_month.items()},
         "model_month":   {k: {m: v.get(m,0) for m in months_present} for k,v in model_month.items()},
         "last_updated":  datetime.now(timezone.utc).strftime("%d %b %Y, %H:%M UTC"),
         "brand_date_range": {

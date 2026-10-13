@@ -25,6 +25,19 @@ Google Drive folder
   [Refresh button]           ← triggers the workflow via GitHub API
 ```
 
+### How the page gets its numbers (lead table)
+
+Every tab counts from **one lead-level table** that the pipeline ships inside the data (`D.fact`): one row per counted lead —
+state, city, dealer, brand/BU/model, month, source, lead type and date — sorted, run-length coded and deflated (~7 MB). The page
+inflates it once (`DecompressionStream`) and `fxGroup([...])` counts leads per any 1–4 of those dimensions under **all** the
+top-bar filters (Brand, Source, Month, BU, Model, State, IMS), so a filter changes every table, chart and card and they always
+add up to the same total. Nothing is estimated by scaling one pre-aggregate by another.
+
+* Encoder: `FactTable` in `scripts/refresh_data.py`; `fact_check()` reconciles it with the 1-D totals and with the Ask cube on every run
+  (a mismatch becomes a warning in the page header).
+* Tests: `python3 scripts/test_refresh_pipeline.py`, `node scripts/test_fact_engine.js` (brute-force check of the engine on random
+  filter mixes), `node scripts/test_ask_filters.js` (Ask vs Actual tab).
+
 ---
 
 ## One-time Setup (15 minutes)
