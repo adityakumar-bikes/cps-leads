@@ -3684,9 +3684,8 @@ function exportAskTable(month,section){
 function exportAskModelTable(brand,month,totalDays,daysElapsed,pacePct){
   const P=_askActuals(month);
   const noAch=_askNoAch(month);
-  const models=D.ask_data?.[month]?.[brand]||{};
-  const rows=Object.entries(models).filter(([mn,av])=>av.t&&P.askRowVisible(mn)).sort(([,a],[,b])=>b.t-a.t);
-  if(!rows.length&&!P.otherModels(brand,new Set()).length)return;
+  const list=_askModelExportRows(P,brand,month);
+  if(!list.some(x=>!x.r.noAsk)&&!P.otherModels(brand,new Set()).length)return;
   const cw=[2000,1000,1000,900,1000,1000,850,850,850,900,1000,1000,900];
   const header=_dRow([
     _dCell('Model',cw[0],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF'}),
@@ -3703,48 +3702,44 @@ function exportAskModelTable(brand,month,totalDays,daysElapsed,pacePct){
     _dCell('Org Actual',cw[11],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
     _dCell('Org ACH%',cw[12],{bold:true,fill:_D_HDR_FILL,color:'FFFFFF',align:'right'}),
   ]);
-  const covered=new Set();
-  const bodyRows=rows.map(([model,av])=>{
-    _askResolveVariants(model,month).forEach(v=>covered.add(v));
-    const act=P.askRow(model);
-    const achPct=av.t>0?(act/av.t*100):0;
-    const sp=P.askRowSplit(model),paidAsk=_askPaid(av),paidAct=sp.g+sp.f+sp.wa;
-    const paidAchPct=paidAsk>0?(paidAct/paidAsk*100):0;
-    const orgAsk=av.o||0,orgAchPct=orgAsk>0?(sp.org/orgAsk*100):0;
+  const bodyRows=list.map(({kind,name,r})=>{
+    const fl=kind==='family'?{fill:'E9ECF8'}:{};
+    if(r.noAsk){
+      return _dRow([
+        _dCell((kind==='member'?'    ↳ ':'')+name+(kind==='family'?'':' · no ask'),cw[0],{bold:kind!=='member',color:'888888',...fl}),
+        _dCell('—',cw[1],{align:'right',...fl}),
+        _dCell(_fmtN(r.act),cw[2],{align:'right',...fl}),
+        _dCell('—',cw[3],{align:'right',...fl}),
+        _dCell('—',cw[4],{align:'right',...fl}),
+        _dCell(_fmtN(r.paidAct),cw[5],{align:'right',...fl}),
+        _dCell(_fmtN(r.wa),cw[6],{align:'right',color:'666666',...fl}),
+        _dCell(_fmtN(r.g),cw[7],{align:'right',color:'666666',...fl}),
+        _dCell(_fmtN(r.f),cw[8],{align:'right',color:'666666',...fl}),
+        _dCell('—',cw[9],{align:'right',...fl}),
+        _dCell('—',cw[10],{align:'right',...fl}),
+        _dCell(_fmtN(r.orgAct),cw[11],{align:'right',...fl}),
+        _dCell('—',cw[12],{align:'right',...fl}),
+      ]);
+    }
+    const achPct=r.ask>0?(r.act/r.ask*100):0;
+    const paidAchPct=r.paidAsk>0?(r.paidAct/r.paidAsk*100):0;
+    const orgAchPct=r.orgAsk>0?(r.orgAct/r.orgAsk*100):0;
     return _dRow([
-      _dCell(model,cw[0],{bold:true}),
-      _dCell(_fmtN(av.t),cw[1],{align:'right'}),
-      _dCell(_fmtN(act),cw[2],{align:'right'}),
-      _dCell(av.t>0&&!noAch?_dPct1(achPct):'—',cw[3],{align:'right',bold:true,color:noAch?'888888':_dHexColor(achPct,pacePct)}),
-      _dCell(_fmtN(paidAsk),cw[4],{align:'right'}),
-      _dCell(_fmtN(paidAct),cw[5],{align:'right'}),
-      _dCell(_fmtN(sp.wa),cw[6],{align:'right',color:'666666'}),
-      _dCell(_fmtN(sp.g),cw[7],{align:'right',color:'666666'}),
-      _dCell(_fmtN(sp.f),cw[8],{align:'right',color:'666666'}),
-      _dCell(paidAsk>0&&!noAch?_dPct1(paidAchPct):'—',cw[9],{align:'right',color:noAch?'888888':_dHexColor(paidAchPct,pacePct)}),
-      _dCell(_fmtN(orgAsk),cw[10],{align:'right'}),
-      _dCell(_fmtN(sp.org),cw[11],{align:'right'}),
-      _dCell(orgAsk>0&&!noAch?_dPct1(orgAchPct):'—',cw[12],{align:'right',color:noAch?'888888':_dHexColor(orgAchPct,pacePct)}),
+      _dCell((kind==='member'?'    ↳ ':'')+name,cw[0],{bold:kind!=='member',...fl}),
+      _dCell(_fmtN(r.ask),cw[1],{align:'right',...fl}),
+      _dCell(_fmtN(r.act),cw[2],{align:'right',...fl}),
+      _dCell(r.ask>0&&!noAch?_dPct1(achPct):'—',cw[3],{align:'right',bold:true,color:noAch?'888888':_dHexColor(achPct,pacePct),...fl}),
+      _dCell(_fmtN(r.paidAsk),cw[4],{align:'right',...fl}),
+      _dCell(_fmtN(r.paidAct),cw[5],{align:'right',...fl}),
+      _dCell(_fmtN(r.wa),cw[6],{align:'right',color:'666666',...fl}),
+      _dCell(_fmtN(r.g),cw[7],{align:'right',color:'666666',...fl}),
+      _dCell(_fmtN(r.f),cw[8],{align:'right',color:'666666',...fl}),
+      _dCell(r.paidAsk>0&&!noAch?_dPct1(paidAchPct):'—',cw[9],{align:'right',color:noAch?'888888':_dHexColor(paidAchPct,pacePct),...fl}),
+      _dCell(_fmtN(r.orgAsk),cw[10],{align:'right',...fl}),
+      _dCell(_fmtN(r.orgAct),cw[11],{align:'right',...fl}),
+      _dCell(r.orgAsk>0&&!noAch?_dPct1(orgAchPct):'—',cw[12],{align:'right',color:noAch?'888888':_dHexColor(orgAchPct,pacePct),...fl}),
     ]);
   });
-  for(const g of _askOtherGroups(P,brand,covered)){
-    const m=g.name;
-    bodyRows.push(_dRow([
-      _dCell(m+' · no ask',cw[0],{bold:true,color:'888888'}),
-      _dCell('—',cw[1],{align:'right'}),
-      _dCell(_fmtN(g.actual),cw[2],{align:'right'}),
-      _dCell('—',cw[3],{align:'right'}),
-      _dCell('—',cw[4],{align:'right'}),
-      _dCell(_fmtN(g.paid),cw[5],{align:'right'}),
-      _dCell(_fmtN(g.wa),cw[6],{align:'right',color:'666666'}),
-      _dCell(_fmtN(g.goog),cw[7],{align:'right',color:'666666'}),
-      _dCell(_fmtN(g.fb),cw[8],{align:'right',color:'666666'}),
-      _dCell('—',cw[9],{align:'right'}),
-      _dCell('—',cw[10],{align:'right'}),
-      _dCell(_fmtN(g.org),cw[11],{align:'right'}),
-      _dCell('—',cw[12],{align:'right'}),
-    ]));
-  }
   let body=_dPara(`${month} — ${brand} Model Detail`,{size:28,bold:true,before:0});
   {const ft=_askFilterText(month);if(ft)body+=_dPara(ft,{size:17,color:'B7791F'});}
   body+=_dTable(cw,header,bodyRows);
@@ -3804,20 +3799,14 @@ function exportAskTableXlsx(month,section){
 function exportAskModelTableXlsx(brand,month){
   const P=_askActuals(month);
   const noAch=_askNoAch(month);
-  const models=D.ask_data?.[month]?.[brand]||{};
-  const modelRows=Object.entries(models).filter(([mn,av])=>av.t&&P.askRowVisible(mn)).sort(([,a],[,b])=>b.t-a.t);
-  if(!modelRows.length&&!P.otherModels(brand,new Set()).length)return;
+  const list=_askModelExportRows(P,brand,month);
+  if(!list.some(x=>!x.r.noAsk)&&!P.otherModels(brand,new Set()).length)return;
   const rows=[['Model','Ask (Total)','Actual (MTD)','ACH%','Paid Ask','Paid Actual','CTWA','Google','FB','Paid ACH%','Org Ask','Org Actual','Org ACH%']];
-  const covered=new Set();
-  for(const[model,av]of modelRows){
-    _askResolveVariants(model,month).forEach(v=>covered.add(v));
-    const act=P.askRow(model);
-    const achPct=av.t>0?(act/av.t*100):0;
-    const sp=P.askRowSplit(model),paidAsk=_askPaid(av),paidAct=sp.g+sp.f+sp.wa,orgAsk=av.o||0;
-    rows.push([model,av.t,act,av.t>0&&!noAch?_dPct1(achPct):'—',paidAsk,paidAct,sp.wa,sp.g,sp.f,paidAsk>0&&!noAch?_dPct1(paidAct/paidAsk*100):'—',orgAsk,sp.org,orgAsk>0&&!noAch?_dPct1(sp.org/orgAsk*100):'—']);
-  }
-  for(const g of _askOtherGroups(P,brand,covered)){
-    rows.push([g.name+' · no ask','—',g.actual,'—','—',g.paid,g.wa,g.goog,g.fb,'—','—',g.org,'—']);
+  for(const {kind,name,r} of list){
+    const label=(kind==='member'?'   ↳ ':'')+name+(r.noAsk&&kind!=='family'?' · no ask':'');
+    if(r.noAsk){rows.push([label,'—',r.act,'—','—',r.paidAct,r.wa,r.g,r.f,'—','—',r.orgAct,'—']);continue;}
+    rows.push([label,r.ask,r.act,r.ask>0&&!noAch?_dPct1(r.act/r.ask*100):'—',r.paidAsk,r.paidAct,r.wa,r.g,r.f,
+      r.paidAsk>0&&!noAch?_dPct1(r.paidAct/r.paidAsk*100):'—',r.orgAsk,r.orgAct,r.orgAsk>0&&!noAch?_dPct1(r.orgAct/r.orgAsk*100):'—']);
   }
   {const ft=_askFilterText(month);if(ft)rows.push([],[ft]);}
   _downloadXlsx(`${brand.replace(/[^\w]+/g,'-')}-Models-${month.replace(/'/g,'-')}.xlsx`,`${brand} Model Detail`,rows);
@@ -3838,77 +3827,170 @@ function _toggleAskBrand(rowId,brand,month,totalDays,daysElapsed,pacePct){
   }
 }
 
-function _askModelTable(brand,month,totalDays,daysElapsed,pacePct){
+// ── Model families ──────────────────────────────────────────────────────────────────────────────────────────
+// Some lines are sold as several variants (Glamour / Glamour X 125, Destini 125 / 110 / Prime, Xoom 125 / 110). The model table,
+// the Daily Trend and the model exports club each of these into ONE row that carries the family total; clicking the row shows
+// the models behind it. Only these three families are clubbed — every other model keeps its own row.
+const _ASK_FAMILIES=[['Hero Glamour',/^Hero Glamour\b/],['Hero Destini',/^Hero Destini\b/],['Hero Xoom',/^Hero Xoom\b/]];
+function _askFamilyOf(model){
+  for(const [name,re] of _ASK_FAMILIES)if(re.test(model))return name;
+  return null;
+}
+// Top-level items in the incoming order: {row} for a plain row, {family, members:[rows]} once a family has two or more rows
+// (a lone variant stays the plain row it is).
+function _askClub(rows,nameOf){
+  const byFam=new Map();
+  for(const r of rows){const f=_askFamilyOf(nameOf(r));if(f){if(!byFam.has(f))byFam.set(f,[]);byFam.get(f).push(r);}}
+  const items=[],placed=new Set();
+  for(const r of rows){
+    const f=_askFamilyOf(nameOf(r));
+    if(f&&byFam.get(f).length>1){if(!placed.has(f)){placed.add(f);items.push({family:f,members:byFam.get(f)});}}
+    else items.push({row:r});
+  }
+  return items;
+}
+// Families the user has opened stay open when a table is rebuilt (another month, a filter, ...).
+const _askFamOpen=new Set();
+function _askToggleFamily(id){
+  if(_askFamOpen.has(id))_askFamOpen.delete(id);else _askFamOpen.add(id);
+  const open=_askFamOpen.has(id);
+  document.querySelectorAll('tr.ask-fam-member').forEach(r=>{if(r.dataset.fam===id)r.style.display=open?'':'none';});
+  document.querySelectorAll('.ask-fam-arr').forEach(a=>{if(a.dataset.fam===id)a.textContent=open?'▼':'▶';});
+}
+const _askFamId=(kind,brand,family)=>'ask-fam-'+kind+'-'+(brand+'-'+family).toLowerCase().replace(/[^a-z0-9]+/g,'-');
+
+// One entry per row of the model table, from the same provider every other figure on the tab uses:
+// {name, noAsk, ask, act, paidAsk, paidAct, wa, g, f, orgAsk, orgAct}. `visible` = the brand's Ask entries that survive the
+// Model / BU filters (Ask rows with no target included), which the Daily Trend is built from too.
+function _askModelRows(P,brand,month){
   const models=D.ask_data?.[month]?.[brand]||{};
+  const visible=Object.entries(models).filter(([mn])=>P.askRowVisible(mn)).sort(([,a],[,b])=>b.t-a.t);
+  const askRows=[],covered=new Set();
+  for(const [model,av] of visible){
+    if(!av.t)continue;
+    _askResolveVariants(model,month).forEach(v=>covered.add(v));
+    const act=P.askRow(model),sp=P.askRowSplit(model);
+    askRows.push({name:model,noAsk:false,ask:av.t,act,paidAsk:_askPaid(av),paidAct:sp.g+sp.f+sp.wa,wa:sp.wa,g:sp.g,f:sp.f,orgAsk:av.o||0,orgAct:sp.org});
+  }
+  // Models this brand delivers on that have no Ask target — included so the rows sum to the brand's real Actual
+  const noAskRows=_askOtherGroups(P,brand,covered).map(g=>({name:g.name,noAsk:true,ask:0,act:g.actual,paidAsk:0,paidAct:g.paid,wa:g.wa,g:g.goog,f:g.fb,orgAsk:0,orgAct:g.org}));
+  return {visible,askRows,noAskRows};
+}
+const _ASK_SUM_KEYS=['ask','act','paidAsk','paidAct','wa','g','f','orgAsk','orgAct'];
+function _askSumRows(rows){
+  const o={};for(const k of _ASK_SUM_KEYS)o[k]=0;
+  for(const r of rows)for(const k of _ASK_SUM_KEYS)o[k]+=r[k];
+  return o;
+}
+// The top-level rows of the model table: Ask rows and the families clubbed out of them (biggest Ask first), then the rows with
+// no Ask. A family row carries the sum of its models — no-Ask members' Actual included, so it adds up like the brand row does.
+// -> [{row}] or [{family, members, row}] (row = what to print; members biggest Ask first, no-Ask ones last)
+function _askModelItems(R){
+  const items=_askClub([...R.askRows,...R.noAskRows],r=>r.name).map(it=>{
+    if(!it.family)return {row:it.row};
+    const members=it.members.slice().sort((a,b)=>b.ask-a.ask);
+    const total=_askSumRows(members);
+    return {family:it.family,members,row:Object.assign({name:it.family+' family',noAsk:total.ask===0},total)};
+  });
+  return items.filter(i=>!i.row.noAsk).sort((a,b)=>b.row.ask-a.row.ask).concat(items.filter(i=>i.row.noAsk));
+}
+// ACH%, projection and status of one row (a model, a family or the no-Ask kind)
+function _askRowMetrics(r,noAch,isPartial,daysElapsed,totalDays,pacePct){
+  const achPct=!noAch&&r.ask>0?(r.act/r.ask*100):null;
+  const achNum=achPct||0;
+  return {
+    achPct,achNum,
+    projAch:!noAch&&isPartial&&daysElapsed>0&&r.ask>0?'~'+Math.round(r.act/daysElapsed*totalDays/r.ask*100)+'%':null,
+    st:noAch?'<span style="color:var(--muted)">—</span>':_askStatus(achNum,pacePct),
+    paidAch:!noAch&&r.paidAsk>0?(r.paidAct/r.paidAsk*100):null,
+    orgAch:!noAch&&r.orgAsk>0?(r.orgAct/r.orgAsk*100):null
+  };
+}
+// One <tr> of the model table. o = {noAch,isPartial,daysElapsed,totalDays,pacePct} plus, for a family row, family:{id,count,open}
+// and, for a model inside a family, member:{id,open}.
+function _askModelRowHtml(r,o){
+  const tr=o.family?` class="ask-fam-row" title="Click to show or hide the models" style="cursor:pointer;background:rgba(108,99,255,.05)" onclick="_askToggleFamily('${o.family.id}')"`
+          :o.member?` class="ask-fam-member" data-fam="${o.member.id}" style="display:${o.member.open?'':'none'};background:rgba(108,99,255,.02)"`:'';
+  const arrow=o.family?`<span class="ask-fam-arr" data-fam="${o.family.id}">${o.family.open?'▼':'▶'}</span> `:(o.member?'<span style="color:var(--muted)">↳</span> ':'');
+  const tag=o.family?` <span style="color:var(--muted);font-weight:400;font-size:.85em">· ${o.family.count} models</span>`
+           :(r.noAsk?' <span style="color:var(--muted);font-weight:400;font-size:.85em">· no ask</span>':'');
+  const nameCell=`<td style="font-weight:${o.member?500:600};padding-left:${o.member?30:8}px">${arrow}${r.name}${tag}</td>`;
+  if(r.noAsk){
+    return `<tr${tr}>
+      ${nameCell}
+      <td class="num" style="color:var(--muted)">—</td>
+      <td class="num">${_fmtN(r.act)}</td>
+      <td class="num" style="color:var(--muted)">—</td>
+      <td class="num" style="color:var(--muted)">—</td>
+      <td class="num">${_fmtN(r.paidAct)}</td>
+      <td class="num" style="color:var(--muted)">${_fmtN(r.wa)}</td>
+      <td class="num" style="color:var(--muted)">${_fmtN(r.g)}</td>
+      <td class="num" style="color:var(--muted)">${_fmtN(r.f)}</td>
+      <td class="num" style="color:var(--muted)">—</td>
+      <td class="num" style="color:var(--muted)">—</td>
+      <td class="num">${_fmtN(r.orgAct)}</td>
+      <td class="num" style="color:var(--muted)">—</td>
+      ${o.isPartial?`<td class="num" style="color:var(--muted)">—</td>`:''}
+      <td class="num" style="color:var(--muted)">—</td>
+    </tr>`;
+  }
+  const m=_askRowMetrics(r,o.noAch,o.isPartial,o.daysElapsed,o.totalDays,o.pacePct);
+  return `<tr${tr}>
+      ${nameCell}
+      <td class="num">${_fmtN(r.ask)}</td>
+      <td class="num">${_fmtN(r.act)}</td>
+      <td class="num" style="color:${o.noAch?'var(--muted)':_achColor(m.achNum,o.pacePct)};font-weight:700">${_fmtP(m.achPct)}</td>
+      <td class="num" style="color:var(--muted)">${_fmtN(r.paidAsk)}</td>
+      <td class="num">${_fmtN(r.paidAct)}</td>
+      <td class="num" style="color:var(--muted)">${_fmtN(r.wa)}</td>
+      <td class="num" style="color:var(--muted)">${_fmtN(r.g)}</td>
+      <td class="num" style="color:var(--muted)">${_fmtN(r.f)}</td>
+      <td class="num" style="color:${m.paidAch==null?'var(--muted)':_achColor(m.paidAch,o.pacePct)}">${_fmtP(m.paidAch)}</td>
+      <td class="num" style="color:var(--muted)">${_fmtN(r.orgAsk)}</td>
+      <td class="num">${_fmtN(r.orgAct)}</td>
+      <td class="num" style="color:${m.orgAch==null?'var(--muted)':_achColor(m.orgAch,o.pacePct)}">${_fmtP(m.orgAch)}</td>
+      ${o.isPartial?`<td class="num">${m.projAch||'—'}</td>`:''}
+      <td class="num" style="font-size:.95rem">${m.st}</td>
+    </tr>`;
+}
+// Rows of the Word / Excel model exports, in display order: a family row (the family total) followed by each of its models
+// (an export has no click), then the other rows. kind: 'row' | 'family' | 'member'
+function _askModelExportRows(P,brand,month){
+  const out=[];
+  for(const it of _askModelItems(_askModelRows(P,brand,month))){
+    if(it.family){
+      out.push({kind:'family',name:it.row.name,r:it.row});
+      for(const m of it.members)out.push({kind:'member',name:m.name,r:m});
+    }else out.push({kind:'row',name:it.row.name,r:it.row});
+  }
+  return out;
+}
+
+function _askModelTable(brand,month,totalDays,daysElapsed,pacePct){
   const P=_askActuals(month);
   const noAch=_askNoAch(month);
-  const rows=Object.entries(models).filter(([mn])=>P.askRowVisible(mn)).sort(([,a],[,b])=>b.t-a.t);
-  if(!rows.length&&!P.otherModels(brand,new Set()).length)return `<div style="color:var(--muted);font-size:.82rem;padding:8px">${P.cube?'No models match the current filters.':'No model data.'}</div>`;
+  const R=_askModelRows(P,brand,month);
+  if(!R.visible.length&&!P.otherModels(brand,new Set()).length)return `<div style="color:var(--muted);font-size:.82rem;padding:8px">${P.cube?'No models match the current filters.':'No model data.'}</div>`;
   const isPartial=daysElapsed<totalDays;
   const brandEsc=brand.replace(/'/g,"\\'");
   const monthEsc=month.replace(/'/g,"\\'");
   let h=`<div class="ctitle-row" style="margin-top:6px"><span></span><div style="display:flex;gap:6px"><button class="exp-btn" onclick="exportAskModelTable('${brandEsc}','${monthEsc}',${totalDays},${daysElapsed},${pacePct})">⬇ Word</button><button class="exp-btn" onclick="exportAskModelTableXlsx('${brandEsc}','${monthEsc}')">⬇ Excel</button></div></div>
-  <div style="font-size:.74rem;color:var(--muted);margin:0 0 4px">Rows marked <span style="font-style:italic">· no ask</span> are models this brand delivers on with no Ask target set — included so Actual sums to the brand total.</div>
+  <div style="font-size:.74rem;color:var(--muted);margin:0 0 4px">Rows marked <span style="font-style:italic">· no ask</span> are models this brand delivers on with no Ask target set — included so Actual sums to the brand total.${_askModelItems(R).some(i=>i.family)?' Glamour, Destini and Xoom variants are clubbed into one family row — click it to see each model.':''}</div>
   <table class="tbl" style="font-size:.82rem;margin:8px 0"><thead><tr>
     <th>Model</th><th>Ask (Total)</th><th>Actual (MTD)</th><th>ACH%</th>
     <th>Paid Ask</th><th>Paid Actual</th><th title="Click-to-WhatsApp: leads whose source is WhatsApp">CTWA</th><th>Google</th><th>FB</th><th>Paid ACH%</th><th>Org Ask</th><th>Org Actual</th><th>Org ACH%</th>
     ${isPartial?'<th>Proj Month-End</th>':''}
     <th>Status</th>
   </tr></thead><tbody>`;
-  const covered=new Set();
-  for(const [model,av] of rows){
-    if(!av.t)continue;
-    _askResolveVariants(model,month).forEach(v=>covered.add(v));
-    const act=P.askRow(model);
-    const achPct=!noAch&&av.t>0?(act/av.t*100):null;
-    const achNum=achPct||0;
-    const projAch=!noAch&&isPartial&&daysElapsed>0&&av.t>0?'~'+Math.round(act/daysElapsed*totalDays/av.t*100)+'%':null;
-    const st=noAch?'<span style="color:var(--muted)">—</span>':_askStatus(achNum,pacePct);
-    const sp=P.askRowSplit(model),paidAsk=_askPaid(av),paidAct=sp.g+sp.f+sp.wa;
-    const paidAch=!noAch&&paidAsk>0?(paidAct/paidAsk*100):null;
-    const orgAsk=av.o||0,orgAch=!noAch&&orgAsk>0?(sp.org/orgAsk*100):null;
-    h+=`<tr>
-      <td style="font-weight:600;padding-left:8px">${model}</td>
-      <td class="num">${_fmtN(av.t)}</td>
-      <td class="num">${_fmtN(act)}</td>
-      <td class="num" style="color:${noAch?'var(--muted)':_achColor(achNum,pacePct)};font-weight:700">${_fmtP(achPct)}</td>
-      <td class="num" style="color:var(--muted)">${_fmtN(paidAsk)}</td>
-      <td class="num">${_fmtN(paidAct)}</td>
-      <td class="num" style="color:var(--muted)">${_fmtN(sp.wa)}</td>
-      <td class="num" style="color:var(--muted)">${_fmtN(sp.g)}</td>
-      <td class="num" style="color:var(--muted)">${_fmtN(sp.f)}</td>
-      <td class="num" style="color:${paidAch==null?'var(--muted)':_achColor(paidAch,pacePct)}">${_fmtP(paidAch)}</td>
-      <td class="num" style="color:var(--muted)">${_fmtN(orgAsk)}</td>
-      <td class="num">${_fmtN(sp.org)}</td>
-      <td class="num" style="color:${orgAch==null?'var(--muted)':_achColor(orgAch,pacePct)}">${_fmtP(orgAch)}</td>
-      ${isPartial?`<td class="num">${projAch||'—'}</td>`:''}
-      <td class="num" style="font-size:.95rem">${st}</td>
-    </tr>`;
-  }
-  // Models this brand delivers on that have no Ask target — shown so the rows
-  // sum to the brand's real Actual instead of silently under-counting.
-  for(const g of _askOtherGroups(P,brand,covered)){
-    const m=g.name,act=g.actual;
-    h+=`<tr>
-      <td style="font-weight:600;padding-left:8px">${m} <span style="color:var(--muted);font-weight:400;font-size:.85em">· no ask</span></td>
-      <td class="num" style="color:var(--muted)">—</td>
-      <td class="num">${_fmtN(act)}</td>
-      <td class="num" style="color:var(--muted)">—</td>
-      <td class="num" style="color:var(--muted)">—</td>
-      <td class="num">${_fmtN(g.paid)}</td>
-      <td class="num" style="color:var(--muted)">${_fmtN(g.wa)}</td>
-      <td class="num" style="color:var(--muted)">${_fmtN(g.goog)}</td>
-      <td class="num" style="color:var(--muted)">${_fmtN(g.fb)}</td>
-      <td class="num" style="color:var(--muted)">—</td>
-      <td class="num" style="color:var(--muted)">—</td>
-      <td class="num">${_fmtN(g.org)}</td>
-      <td class="num" style="color:var(--muted)">—</td>
-      ${isPartial?`<td class="num" style="color:var(--muted)">—</td>`:''}
-      <td class="num" style="color:var(--muted)">—</td>
-    </tr>`;
+  const ro={noAch,isPartial,daysElapsed,totalDays,pacePct};
+  for(const it of _askModelItems(R)){
+    if(!it.family){h+=_askModelRowHtml(it.row,ro);continue;}
+    const id=_askFamId('m',brand,it.family),open=_askFamOpen.has(id);
+    h+=_askModelRowHtml(it.row,Object.assign({family:{id,count:it.members.length,open}},ro));
+    for(const mem of it.members)h+=_askModelRowHtml(mem,Object.assign({member:{id,open}},ro));
   }
   h+=`</tbody></table>`;
-  h+=_askModelDailyTable(rows,month,totalDays,brand);
+  h+=_askModelDailyTable(R.visible,month,totalDays,brand);
   return h;
 }
 
@@ -4032,6 +4114,25 @@ function _askModelDailyTable(rows,month,totalDays,brand){
     const dayTotals=new Array(totalDays+1).fill(0);   // 1-indexed
     for(const r of list)for(let d=1;d<=totalDays;d++)dayTotals[d]+=r.days[d];
     const grandTotal=sumOf(dayTotals);
+    // Glamour / Destini / Xoom variants are one family row (click for the models), sorted among the other rows by its total
+    const items=_askClub(list,r=>r.model).map(it=>{
+      if(!it.family)return {row:it.row,total:it.row.total};
+      const days=new Array(totalDays+1).fill(0);
+      for(const mm of it.members)for(let d=1;d<=totalDays;d++)days[d]+=mm.days[d];
+      const total=sumOf(days);
+      return {family:it.family,members:it.members,row:{model:it.family+' family',days,total},total};
+    }).sort((a,b)=>b.total-a.total);
+    const dayRow=(r,o)=>{
+      const trAttr=o.family?` class="ask-fam-row" title="Click to show or hide the models" style="cursor:pointer;background:rgba(108,99,255,.05)" onclick="_askToggleFamily('${o.family.id}')"`
+                  :o.member?` class="ask-fam-member" data-fam="${o.member.id}" style="display:${o.member.open?'':'none'}"`:'';
+      const arrow=o.family?`<span class="ask-fam-arr" data-fam="${o.family.id}">${o.family.open?'▼':'▶'}</span> `:(o.member?'<span style="color:var(--muted)">↳</span> ':'');
+      const tag=o.family?` <span style="color:var(--muted);font-weight:400;font-size:.9em">· ${o.family.count} models</span>`:(r.noAsk?' <span style="color:var(--muted);font-weight:400;font-size:.9em">· no ask</span>':'');
+      let s=`<tr${trAttr}>
+      <td style="text-align:left;padding:4px 8px 4px ${o.member?22:8}px;position:sticky;left:0;background:var(--card);font-weight:${o.family?700:500};white-space:nowrap">${arrow}${r.model}${tag}</td>
+      <td class="num" style="font-weight:600">${r.total.toLocaleString()}</td>`;
+      for(let d=1;d<=totalDays;d++){const v=r.days[d];s+=`<td class="num">${v?v:'<span style="color:#8b949e">—</span>'}</td>`;}
+      return s+`</tr>`;
+    };
     h+=`<div class="ask-day-view" data-src="${attr(key)}" style="display:${disp}">`;
     if(key!=='all')h+=`<div style="font-size:.74rem;color:var(--muted);margin:2px 0 0">${key==='paid'?'Paid = CTWA + Google + Facebook leads':label+' leads only'} — models with none are left out.</div>`;
     h+=`<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
@@ -4048,15 +4149,11 @@ function _askModelDailyTable(rows,month,totalDays,brand){
       h+=`<td class="num">${v?v.toLocaleString():'<span style="color:#8b949e">—</span>'}</td>`;
     }
     h+=`</tr>`;
-    for(const {model,days,total,noAsk} of list){
-      h+=`<tr>
-      <td style="text-align:left;padding:4px 8px;position:sticky;left:0;background:var(--card);font-weight:500;white-space:nowrap">${model}${noAsk?' <span style="color:var(--muted);font-weight:400;font-size:.9em">· no ask</span>':''}</td>
-      <td class="num" style="font-weight:600">${total.toLocaleString()}</td>`;
-      for(let d=1;d<=totalDays;d++){
-        const v=days[d];
-        h+=`<td class="num">${v?v:'<span style="color:#8b949e">—</span>'}</td>`;
-      }
-      h+=`</tr>`;
+    for(const it of items){
+      if(!it.family){h+=dayRow(it.row,{});continue;}
+      const id=_askFamId('d',brand,it.family),open=_askFamOpen.has(id);
+      h+=dayRow(it.row,{family:{id,count:it.members.length,open}});
+      for(const mem of it.members)h+=dayRow(mem,{member:{id,open}});
     }
     h+=`</tbody></table></div></div>`;
   }

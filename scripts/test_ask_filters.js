@@ -23,8 +23,10 @@ const code = [
   // variants table, _askResolveVariants, _askModelActual, _askBrandOtherModels and the whole
   // filter-aware provider (cube index, aggregation, legacy + cube providers, filter notes)
   pick('const _ASK_VARIANTS = {', "// Some brands enter a single lump 'Paid' figure"),
+  pick('function _askPaid(v){', 'function renderAsk(){'),   // _askPaid, days in month, status / colour helpers, number formatters
+  pick('function _toggleAskBrand(', 'function _askModelDayActual('),   // model families, the model table
   pick('function _askModelDayActual(', '</script>'),   // day-level helpers + the Daily Trend table
-  ';globalThis.__api={_askActuals,_askUseCube,_askNoAch,_askFilterNote,_askFilterText,_askCubeIdx,_askExtraFilters,_askNoAskBrands,_askNoAskNote,_askFoldNoAsk,_askOtherGroups,_askOtherDayGroups,_askRowDaySrc,_askPickSrc,_askModelDailyTable,_ASK_DAY_SRCS};',
+  ';globalThis.__api={_askActuals,_askUseCube,_askNoAch,_askFilterNote,_askFilterText,_askCubeIdx,_askExtraFilters,_askNoAskBrands,_askNoAskNote,_askFoldNoAsk,_askOtherGroups,_askOtherDayGroups,_askRowDaySrc,_askPickSrc,_askModelDailyTable,_ASK_DAY_SRCS,_askFamilyOf,_askClub,_askModelRows,_askModelItems,_askModelRowHtml,_askModelTable,_askModelExportRows,_askRowMetrics};',
 ].join('\n');
 
 // ── synthetic data ────────────────────────────────────────────────────────────────────────
@@ -431,6 +433,123 @@ console.log('\n== Daily Trend: one row per model, one source at a time ==');
     D.model_medium_date['TVS Raider'] = saved;
   }
   check('no leads at all for a brand -> the "no daily data" message instead of tables', /No daily data/.test(A._askModelDailyTable([], "Oct'2026", 31, 'Nobody')), true);
+}
+
+console.log('\n== Model families: Glamour, Destini and Xoom clubbed into one row ==');
+{
+  const A0 = A;
+  check('only Glamour, Destini and Xoom are families (whole-word match on the name)',
+        ['Hero Glamour', 'Hero Glamour X 125', 'Hero Destini 125', 'Hero Destini Prime', 'Hero Xoom 110', 'Hero Xoom', 'Hero Xtreme 125R', 'Hero Passion Plus', 'Hero Glamourous', 'TVS Hero Xoom 110', 'Hero Super Splendor XTEC'].map((m) => A0._askFamilyOf(m)),
+        ['Hero Glamour', 'Hero Glamour', 'Hero Destini', 'Hero Destini', 'Hero Xoom', 'Hero Xoom', null, null, null, null, null]);
+  check('a family needs two or more rows to be clubbed; a lone variant stays a plain row, order is kept',
+        A0._askClub([{n: 'Hero Destini 125'}, {n: 'Hero Xtreme 125R'}], (r) => r.n).map((i) => (i.family ? 'F:' + i.family : i.row.n)), ['Hero Destini 125', 'Hero Xtreme 125R']);
+  check('two variants become one family item at the position of the first, the other rows keep their order',
+        A0._askClub([{n: 'Hero Xtreme 125R'}, {n: 'Hero Destini 125'}, {n: 'Hero Passion Plus'}, {n: 'Hero Destini 110'}], (r) => r.n).map((i) => (i.family ? 'F:' + i.family + ':' + i.members.map((m) => m.n).join('+') : i.row.n)),
+        ['Hero Xtreme 125R', 'F:Hero Destini:Hero Destini 125+Hero Destini 110', 'Hero Passion Plus']);
+
+  // a small separate dataset (legacy provider): ten Hero models, one Xoom with no Ask row
+  const FM = ['Hero Xtreme 125R', 'Hero Glamour', 'Hero Glamour X 125', 'Hero Destini 125', 'Hero Destini 110', 'Hero Destini Prime', 'Hero Xoom 125', 'Hero Xoom 110', 'Hero Xoom 160', 'Hero Passion Plus'];
+  const ASK = {'Hero Xtreme 125R': 33700, 'Hero Glamour': 16500, 'Hero Glamour X 125': 14000, 'Hero Destini 125': 15000, 'Hero Destini 110': 5500, 'Hero Destini Prime': 3500,
+               'Hero Xoom 125': 7700, 'Hero Xoom 110': 5300, 'Hero Passion Plus': 7500};          // Xoom 160: no Ask
+  const M0 = "Oct'2026", FDATES = ['2026-10-01', '2026-10-02', '2026-10-03'];
+  const fcells = [];
+  let sd = 4242; const r2 = (n) => { sd = (sd * 1103515245 + 12345) & 0x7fffffff; return sd % n; };
+  for (const m of FM) for (const e of MEDIA) for (const dt of FDATES) fcells.push([m, e, dt, 1 + r2(40)]);
+  const fsum = (pred, f = (c) => c[3]) => fcells.filter(pred).reduce((a, c) => a + f(c), 0);
+  const D2 = {ask_cube: null, model_bu: {}, model_brand: {}, by_brand: {Hero: 1}, brands_all: ['Hero'], brand_month: {Hero: {[M0]: fsum(() => true)}}, brand_medium_month: {Hero: {}},
+              model_month: {}, model_medium_month: {}, model_date: {}, model_medium_date: {}, brand_date_range: {Hero: {max: '10/03/2026'}},
+              ask_data: {[M0]: {Hero: Object.fromEntries(Object.entries(ASK).map(([m, t]) => [m, {t, o: Math.round(t * .2), g: Math.round(t * .3), f: Math.round(t * .5), p: 0}]))}}};
+  for (const e of MEDIA) D2.brand_medium_month.Hero[e] = {[M0]: fsum((c) => c[1] === e)};
+  for (const m of FM) {
+    D2.model_brand[m] = {Hero: 1}; D2.model_bu[m] = 'Hero';
+    D2.model_month[m] = {[M0]: fsum((c) => c[0] === m)};
+    D2.model_medium_month[m] = {}; D2.model_medium_date[m] = {}; D2.model_date[m] = {};
+    for (const e of MEDIA) { D2.model_medium_month[m][e] = {[M0]: fsum((c) => c[0] === m && c[1] === e)}; D2.model_medium_date[m][e] = {}; }
+    for (const dt of FDATES) {
+      D2.model_date[m][dt] = fsum((c) => c[0] === m && c[2] === dt);
+      for (const e of MEDIA) D2.model_medium_date[m][e][dt] = fsum((c) => c[0] === m && c[1] === e && c[2] === dt);
+    }
+  }
+  const ctx2 = {console, D: D2, MCOL, fState: [], fBU: [], fModel: [], fMedium: [], fBrand: [], fMonth: [], fIMS: ''};
+  vm.createContext(ctx2); vm.runInContext(code, ctx2);
+  const F = ctx2.__api;
+  const P = F._askActuals(M0);
+  const R = F._askModelRows(P, 'Hero', M0);
+  const act = (m) => fsum((c) => c[0] === m);
+  const split = (m) => ({wa: fsum((c) => c[0] === m && c[1] === 'Whatsapp'), g: fsum((c) => c[0] === m && c[1] === 'Google'), f: fsum((c) => c[0] === m && c[1] === 'Facebook'), org: fsum((c) => c[0] === m && c[1] === 'Organic')});
+  const wantRow = (m) => { const a = ASK[m], sp = split(m); return {name: m, noAsk: !a, ask: a || 0, act: act(m), paidAsk: a ? Math.round(a * .3) + Math.round(a * .5) : 0, paidAct: sp.wa + sp.g + sp.f, wa: sp.wa, g: sp.g, f: sp.f, orgAsk: a ? Math.round(a * .2) : 0, orgAct: sp.org}; };
+  check('every model row (Ask rows and the no-Ask one) carries the right Ask, Actual and split', [...R.askRows, ...R.noAskRows].map((r) => r.name).sort().join('|') + '##' + JSON.stringify([...R.askRows, ...R.noAskRows].sort((a, b) => a.name.localeCompare(b.name))),
+        FM.slice().sort().join('|') + '##' + JSON.stringify(FM.slice().sort().map(wantRow)));
+  const items = F._askModelItems(R);
+  const famWant = (fam) => { const ms = FM.filter((m) => m.startsWith(fam)); const rows = ms.map(wantRow); const t = {}; for (const k of ['ask', 'act', 'paidAsk', 'paidAct', 'wa', 'g', 'f', 'orgAsk', 'orgAct']) t[k] = rows.reduce((a, r) => a + r[k], 0); return t; };
+  const pickKeys = (r) => { const o = {}; for (const k of ['ask', 'act', 'paidAsk', 'paidAct', 'wa', 'g', 'f', 'orgAsk', 'orgAct']) o[k] = r[k]; return o; };
+  check('top level: Xtreme 125R, the Glamour / Destini / Xoom families and Passion Plus, biggest Ask first',
+        items.map((i) => i.row.name), ['Hero Xtreme 125R', 'Hero Glamour family', 'Hero Destini family', 'Hero Xoom family', 'Hero Passion Plus']);
+  for (const fam of ['Hero Glamour', 'Hero Destini', 'Hero Xoom']) {
+    const it = items.find((i) => i.family === fam);
+    check(fam + ' family row = the sum of its models (the no-Ask Xoom 160 counts in Actual, not in Ask)', pickKeys(it.row), famWant(fam));
+  }
+  check('members inside a family: biggest Ask first, the no-Ask model last',
+        items.filter((i) => i.family).map((i) => i.members.map((m) => m.name)), [['Hero Glamour', 'Hero Glamour X 125'], ['Hero Destini 125', 'Hero Destini 110', 'Hero Destini Prime'], ['Hero Xoom 125', 'Hero Xoom 110', 'Hero Xoom 160']]);
+  const tot = (rows) => pickKeys(rows.reduce((o, r) => { for (const k in o) o[k] += r[k]; return o; }, {ask: 0, act: 0, paidAsk: 0, paidAct: 0, wa: 0, g: 0, f: 0, orgAsk: 0, orgAct: 0}));
+  check('the top-level rows add up to the same Ask and Actual as every model on its own (nothing lost or counted twice)', tot(items.map((i) => i.row)), tot(FM.map(wantRow)));
+  check('...and the brand\'s Actual is the sum of the top-level rows', items.reduce((s, i) => s + i.row.act, 0), P.brand('Hero').total);
+  check('a family with no Ask target at all would be a no-Ask row, listed after the others',
+        F._askModelItems({askRows: [], noAskRows: [{name: 'Hero Xoom 110', noAsk: true, ask: 0, act: 5, paidAsk: 0, paidAct: 3, wa: 1, g: 1, f: 1, orgAsk: 0, orgAct: 2}, {name: 'Hero Xoom 160', noAsk: true, ask: 0, act: 7, paidAsk: 0, paidAct: 4, wa: 2, g: 1, f: 1, orgAsk: 0, orgAct: 3}]}).map((i) => [i.row.name, i.row.noAsk, i.row.act]),
+        [['Hero Xoom family', true, 12]]);
+
+  // the HTML of the model table
+  const html = F._askModelTable('Hero', M0, 31, 3, 9.7);
+  const modelHtml = html.split('<div class="ask-day-wrap">')[0];   // the model table, without the Daily Trend that follows it
+  const trs = modelHtml.match(/<tr[^>]*>[\s\S]*?<\/tr>/g);
+  const famRows = trs.filter((t) => /class="ask-fam-row"/.test(t)), memRows = trs.filter((t) => /class="ask-fam-member"/.test(t));
+  const cellsOf = (tr) => (tr.match(/<td[^>]*>[\s\S]*?<\/td>/g) || []).map((c) => c.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim());
+  check('three family rows, each with its models underneath (2 + 3 + 3), the models hidden until clicked',
+        [famRows.length, memRows.length, memRows.every((t) => /display:none/.test(t)), famRows.every((t) => /▶/.test(t) && /onclick="_askToggleFamily\('ask-fam-m-hero-hero-(glamour|destini|xoom)'\)"/.test(t))], [3, 8, true, true]);
+  const famCells = Object.fromEntries(famRows.map((t) => { const c = cellsOf(t); return [c[0].replace(/^▶ /, '').replace(/ · .*$/, ''), c]; }));
+  const n = (v) => v.toLocaleString('en-IN');
+  for (const fam of ['Hero Glamour', 'Hero Destini', 'Hero Xoom']) {
+    const w = famWant(fam), c = famCells[fam + ' family'];
+    check(fam + ' family row shows the family Ask, Actual, ACH%, Paid Actual, CTWA, Google, FB and Org Actual', [c[1], c[2], c[3], c[5], c[6], c[7], c[8], c[11]],
+          [n(w.ask), n(w.act), (w.act / w.ask * 100).toFixed(1) + '%', n(w.paidAct), n(w.wa), n(w.g), n(w.f), n(w.orgAct)]);
+  }
+  check('the legend explains the family rows', /clubbed into one family row — click it/.test(html), true);
+  check('the other models keep their own plain rows', ['Hero Xtreme 125R', 'Hero Passion Plus'].every((m) => trs.some((t) => !/class="ask-fam/.test(t) && cellsOf(t)[0] === m)), true);
+  // open one family
+  vm.runInContext("_askFamOpen.add('ask-fam-m-hero-hero-destini')", ctx2);
+  const html2 = F._askModelTable('Hero', M0, 31, 3, 9.7);
+  const open = (h, fam) => (h.match(/<tr class="ask-fam-member"[^>]*>/g) || []).filter((t) => t.includes('data-fam="ask-fam-m-hero-hero-' + fam + '"')).map((t) => /display:none/.test(t));
+  check('an opened family stays open when the table is rebuilt, the others stay closed', [open(html2, 'destini'), open(html2, 'glamour'), open(html2, 'xoom'), /<span class="ask-fam-arr" data-fam="ask-fam-m-hero-hero-destini">▼/.test(html2)],
+        [[false, false, false], [true, true], [true, true, true], true]);
+  vm.runInContext("_askFamOpen.clear()", ctx2);
+  // exports follow the same rows: a family row, then its models
+  const ex = F._askModelExportRows(P, 'Hero', M0);
+  check('exports list each family row followed by its models, then the other rows', ex.map((x) => (x.kind === 'member' ? '  ' : '') + x.name),
+        ['Hero Xtreme 125R', 'Hero Glamour family', '  Hero Glamour', '  Hero Glamour X 125', 'Hero Destini family', '  Hero Destini 125', '  Hero Destini 110', '  Hero Destini Prime', 'Hero Xoom family', '  Hero Xoom 125', '  Hero Xoom 110', '  Hero Xoom 160', 'Hero Passion Plus']);
+
+  // the Daily Trend
+  const dh = F._askModelDailyTable(R.visible, M0, 31, 'Hero');
+  const views = dh.split('<div class="ask-day-view" data-src="').slice(1);
+  const viewOf = (key) => views.find((v) => v.startsWith(key + '"'));
+  const dayRows = (v) => (v.match(/<tr[^>]*>[\s\S]*?<\/tr>/g) || []).slice(1).map((t) => ({fam: /class="ask-fam-row"/.test(t), mem: /class="ask-fam-member"/.test(t), hidden: /display:none/.test(t), cells: cellsOf(t)}));
+  const allRows = dayRows(viewOf('all'));
+  check('Daily Trend: a family row per family with its models hidden underneath, and the rows are sorted by total (families by their sum)',
+        [allRows.filter((r) => r.fam).length, allRows.filter((r) => r.mem).length, allRows.filter((r) => r.mem).every((r) => r.hidden)], [3, 8, true]);
+  const dayWant = (ms, key) => { const meds = key === 'all' ? MEDIA : key === 'paid' ? ['Whatsapp', 'Google', 'Facebook'] : [key]; const days = FDATES.map((dt) => fsum((c) => ms.includes(c[0]) && meds.includes(c[1]) && c[2] === dt)); return [days.reduce((a, c) => a + c, 0), ...days]; };
+  for (const key of ['all', 'paid', 'Google']) {
+    const rows = dayRows(viewOf(key));
+    for (const fam of ['Hero Glamour', 'Hero Destini', 'Hero Xoom']) {
+      const fr = rows.find((r) => r.fam && r.cells[0].startsWith('▶ ' + fam + ' family'));
+      const w = dayWant(FM.filter((m) => m.startsWith(fam)), key);
+      check(`Daily Trend (${key}): the ${fam} family row = the sum of its models, total and the first three days`, fr.cells.slice(1, 5).map((x) => Number(x.replace(/,/g, '')) || 0), w);
+    }
+    const tops = rows.filter((r) => !r.mem).map((r) => Number(r.cells[1].replace(/,/g, '')));
+    check(`Daily Trend (${key}): rows sorted biggest first`, tops.slice(1).every((x, i, a) => i === 0 || a[i - 1] >= x), true);
+    const allModelsRow = rows.length ? cellsOf((viewOf(key).match(/<tr[^>]*>[\s\S]*?<\/tr>/g) || [])[1]) : null;
+    check(`Daily Trend (${key}): "All Models" counts every model once (families not added twice)`, Number(allModelsRow[1].replace(/,/g, '')), dayWant(FM, key)[0]);
+  }
+  // a Model filter that leaves one Destini: it is shown as the plain row
+  check('with a single model of a family left, it is the plain row (no family row)', F._askModelItems({askRows: [{name: 'Hero Destini 125', noAsk: false, ask: 9, act: 5, paidAsk: 1, paidAct: 1, wa: 1, g: 0, f: 0, orgAsk: 1, orgAct: 1}], noAskRows: []}).map((i) => [i.family || null, i.row.name]), [[null, 'Hero Destini 125']]);
 }
 
 console.log(`\n${'='.repeat(60)}\n${pass} passed, ${fail} failed`);
