@@ -25,8 +25,9 @@ const code = [
   pick('const _ASK_VARIANTS = {', "// Some brands enter a single lump 'Paid' figure"),
   pick('function _askPaid(v){', 'function renderAsk(){'),   // _askPaid, days in month, status / colour helpers, number formatters
   pick('function _toggleAskBrand(', 'function _askModelDayActual('),   // model families, the model table
+  pick('function _computeAskData(', 'function _askScorecardTableXml('),   // the report data (alert lists)
   pick('function _askModelDayActual(', '</script>'),   // day-level helpers + the Daily Trend table
-  ';globalThis.__api={_askActuals,_askUseCube,_askNoAch,_askFilterNote,_askFilterText,_askCubeIdx,_askExtraFilters,_askNoAskBrands,_askNoAskNote,_askFoldNoAsk,_askOtherGroups,_askOtherDayGroups,_askRowDaySrc,_askPickSrc,_askModelDailyTable,_ASK_DAY_SRCS,_askFamilyOf,_askClub,_askModelRows,_askModelItems,_askModelRowHtml,_askModelTable,_askModelExportRows,_askRowMetrics};',
+  ';globalThis.__api={_askActuals,_askUseCube,_askNoAch,_askFilterNote,_askFilterText,_askCubeIdx,_askExtraFilters,_askNoAskBrands,_askNoAskNote,_askFoldNoAsk,_askOtherGroups,_askOtherDayGroups,_askRowDaySrc,_askPickSrc,_askModelDailyTable,_ASK_DAY_SRCS,_askFamilyOf,_askClub,_askModelRows,_askModelItems,_askModelRowHtml,_askModelTable,_askModelExportRows,_askRowMetrics,_askRecent,_askProjLeads,_askProjPct,_askBrandModels,_askAlertLists,_computeAskData};',
 ].join('\n');
 
 // ── synthetic data ────────────────────────────────────────────────────────────────────────
@@ -451,13 +452,13 @@ console.log('\n== Model families: Glamour, Destini and Xoom clubbed into one row
   const FM = ['Hero Xtreme 125R', 'Hero Glamour', 'Hero Glamour X 125', 'Hero Destini 125', 'Hero Destini 110', 'Hero Destini Prime', 'Hero Xoom 125', 'Hero Xoom 110', 'Hero Xoom 160', 'Hero Passion Plus'];
   const ASK = {'Hero Xtreme 125R': 33700, 'Hero Glamour': 16500, 'Hero Glamour X 125': 14000, 'Hero Destini 125': 15000, 'Hero Destini 110': 5500, 'Hero Destini Prime': 3500,
                'Hero Xoom 125': 7700, 'Hero Xoom 110': 5300, 'Hero Passion Plus': 7500};          // Xoom 160: no Ask
-  const M0 = "Oct'2026", FDATES = ['2026-10-01', '2026-10-02', '2026-10-03'];
+  const M0 = "Oct'2026", FDATES = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05', '2026-10-06', '2026-10-07'];
   const fcells = [];
   let sd = 4242; const r2 = (n) => { sd = (sd * 1103515245 + 12345) & 0x7fffffff; return sd % n; };
   for (const m of FM) for (const e of MEDIA) for (const dt of FDATES) fcells.push([m, e, dt, 1 + r2(40)]);
   const fsum = (pred, f = (c) => c[3]) => fcells.filter(pred).reduce((a, c) => a + f(c), 0);
   const D2 = {ask_cube: null, model_bu: {}, model_brand: {}, by_brand: {Hero: 1}, brands_all: ['Hero'], brand_month: {Hero: {[M0]: fsum(() => true)}}, brand_medium_month: {Hero: {}},
-              model_month: {}, model_medium_month: {}, model_date: {}, model_medium_date: {}, brand_date_range: {Hero: {max: '10/03/2026'}},
+              model_month: {}, model_medium_month: {}, model_date: {}, model_medium_date: {}, brand_date_range: {Hero: {max: '10/07/2026'}},
               ask_data: {[M0]: {Hero: Object.fromEntries(Object.entries(ASK).map(([m, t]) => [m, {t, o: Math.round(t * .2), g: Math.round(t * .3), f: Math.round(t * .5), p: 0}]))}}};
   for (const e of MEDIA) D2.brand_medium_month.Hero[e] = {[M0]: fsum((c) => c[1] === e)};
   for (const m of FM) {
@@ -474,15 +475,17 @@ console.log('\n== Model families: Glamour, Destini and Xoom clubbed into one row
   vm.createContext(ctx2); vm.runInContext(code, ctx2);
   const F = ctx2.__api;
   const P = F._askActuals(M0);
-  const R = F._askModelRows(P, 'Hero', M0);
+  const R = F._askModelRows(P, 'Hero', M0, 7);
   const act = (m) => fsum((c) => c[0] === m);
   const split = (m) => ({wa: fsum((c) => c[0] === m && c[1] === 'Whatsapp'), g: fsum((c) => c[0] === m && c[1] === 'Google'), f: fsum((c) => c[0] === m && c[1] === 'Facebook'), org: fsum((c) => c[0] === m && c[1] === 'Organic')});
-  const wantRow = (m) => { const a = ASK[m], sp = split(m); return {name: m, noAsk: !a, ask: a || 0, act: act(m), paidAsk: a ? Math.round(a * .3) + Math.round(a * .5) : 0, paidAct: sp.wa + sp.g + sp.f, wa: sp.wa, g: sp.g, f: sp.f, orgAsk: a ? Math.round(a * .2) : 0, orgAct: sp.org}; };
+  const RECENT = FDATES.slice(3);   // the last four days with data (7 days so far)
+  const recent = (m) => fsum((c) => c[0] === m && RECENT.includes(c[2]));
+  const wantRow = (m) => { const a = ASK[m], sp = split(m); return {name: m, noAsk: !a, ask: a || 0, act: act(m), paidAsk: a ? Math.round(a * .3) + Math.round(a * .5) : 0, paidAct: sp.wa + sp.g + sp.f, wa: sp.wa, g: sp.g, f: sp.f, orgAsk: a ? Math.round(a * .2) : 0, orgAct: sp.org, rec: recent(m), recN: 4}; };
   check('every model row (Ask rows and the no-Ask one) carries the right Ask, Actual and split', [...R.askRows, ...R.noAskRows].map((r) => r.name).sort().join('|') + '##' + JSON.stringify([...R.askRows, ...R.noAskRows].sort((a, b) => a.name.localeCompare(b.name))),
         FM.slice().sort().join('|') + '##' + JSON.stringify(FM.slice().sort().map(wantRow)));
   const items = F._askModelItems(R);
-  const famWant = (fam) => { const ms = FM.filter((m) => m.startsWith(fam)); const rows = ms.map(wantRow); const t = {}; for (const k of ['ask', 'act', 'paidAsk', 'paidAct', 'wa', 'g', 'f', 'orgAsk', 'orgAct']) t[k] = rows.reduce((a, r) => a + r[k], 0); return t; };
-  const pickKeys = (r) => { const o = {}; for (const k of ['ask', 'act', 'paidAsk', 'paidAct', 'wa', 'g', 'f', 'orgAsk', 'orgAct']) o[k] = r[k]; return o; };
+  const famWant = (fam) => { const ms = FM.filter((m) => m.startsWith(fam)); const rows = ms.map(wantRow); const t = {}; for (const k of ['ask', 'act', 'paidAsk', 'paidAct', 'wa', 'g', 'f', 'orgAsk', 'orgAct', 'rec']) t[k] = rows.reduce((a, r) => a + r[k], 0); return t; };
+  const pickKeys = (r) => { const o = {}; for (const k of ['ask', 'act', 'paidAsk', 'paidAct', 'wa', 'g', 'f', 'orgAsk', 'orgAct', 'rec']) o[k] = r[k]; return o; };
   check('top level: Xtreme 125R, the Glamour / Destini / Xoom families and Passion Plus, biggest Ask first',
         items.map((i) => i.row.name), ['Hero Xtreme 125R', 'Hero Glamour family', 'Hero Destini family', 'Hero Xoom family', 'Hero Passion Plus']);
   for (const fam of ['Hero Glamour', 'Hero Destini', 'Hero Xoom']) {
@@ -491,7 +494,7 @@ console.log('\n== Model families: Glamour, Destini and Xoom clubbed into one row
   }
   check('members inside a family: biggest Ask first, the no-Ask model last',
         items.filter((i) => i.family).map((i) => i.members.map((m) => m.name)), [['Hero Glamour', 'Hero Glamour X 125'], ['Hero Destini 125', 'Hero Destini 110', 'Hero Destini Prime'], ['Hero Xoom 125', 'Hero Xoom 110', 'Hero Xoom 160']]);
-  const tot = (rows) => pickKeys(rows.reduce((o, r) => { for (const k in o) o[k] += r[k]; return o; }, {ask: 0, act: 0, paidAsk: 0, paidAct: 0, wa: 0, g: 0, f: 0, orgAsk: 0, orgAct: 0}));
+  const tot = (rows) => pickKeys(rows.reduce((o, r) => { for (const k in o) o[k] += r[k]; return o; }, {ask: 0, act: 0, paidAsk: 0, paidAct: 0, wa: 0, g: 0, f: 0, orgAsk: 0, orgAct: 0, rec: 0}));
   check('the top-level rows add up to the same Ask and Actual as every model on its own (nothing lost or counted twice)', tot(items.map((i) => i.row)), tot(FM.map(wantRow)));
   check('...and the brand\'s Actual is the sum of the top-level rows', items.reduce((s, i) => s + i.row.act, 0), P.brand('Hero').total);
   check('a family with no Ask target at all would be a no-Ask row, listed after the others',
@@ -499,7 +502,7 @@ console.log('\n== Model families: Glamour, Destini and Xoom clubbed into one row
         [['Hero Xoom family', true, 12]]);
 
   // the HTML of the model table
-  const html = F._askModelTable('Hero', M0, 31, 3, 9.7);
+  const html = F._askModelTable('Hero', M0, 31, 7, 23);
   const modelHtml = html.split('<div class="ask-day-wrap">')[0];   // the model table, without the Daily Trend that follows it
   const trs = modelHtml.match(/<tr[^>]*>[\s\S]*?<\/tr>/g);
   const famRows = trs.filter((t) => /class="ask-fam-row"/.test(t)), memRows = trs.filter((t) => /class="ask-fam-member"/.test(t));
@@ -517,7 +520,7 @@ console.log('\n== Model families: Glamour, Destini and Xoom clubbed into one row
   check('the other models keep their own plain rows', ['Hero Xtreme 125R', 'Hero Passion Plus'].every((m) => trs.some((t) => !/class="ask-fam/.test(t) && cellsOf(t)[0] === m)), true);
   // open one family
   vm.runInContext("_askFamOpen.add('ask-fam-m-hero-hero-destini')", ctx2);
-  const html2 = F._askModelTable('Hero', M0, 31, 3, 9.7);
+  const html2 = F._askModelTable('Hero', M0, 31, 7, 23);
   const open = (h, fam) => (h.match(/<tr class="ask-fam-member"[^>]*>/g) || []).filter((t) => t.includes('data-fam="ask-fam-m-hero-hero-' + fam + '"')).map((t) => /display:none/.test(t));
   check('an opened family stays open when the table is rebuilt, the others stay closed', [open(html2, 'destini'), open(html2, 'glamour'), open(html2, 'xoom'), /<span class="ask-fam-arr" data-fam="ask-fam-m-hero-hero-destini">▼/.test(html2)],
         [[false, false, false], [true, true], [true, true, true], true]);
@@ -541,15 +544,73 @@ console.log('\n== Model families: Glamour, Destini and Xoom clubbed into one row
     for (const fam of ['Hero Glamour', 'Hero Destini', 'Hero Xoom']) {
       const fr = rows.find((r) => r.fam && r.cells[0].startsWith('▶ ' + fam + ' family'));
       const w = dayWant(FM.filter((m) => m.startsWith(fam)), key);
-      check(`Daily Trend (${key}): the ${fam} family row = the sum of its models, total and the first three days`, fr.cells.slice(1, 5).map((x) => Number(x.replace(/,/g, '')) || 0), w);
+      check(`Daily Trend (${key}): the ${fam} family row = the sum of its models, total and the seven days`, fr.cells.slice(1, 2 + FDATES.length).map((x) => Number(x.replace(/,/g, '')) || 0), w);
     }
     const tops = rows.filter((r) => !r.mem).map((r) => Number(r.cells[1].replace(/,/g, '')));
     check(`Daily Trend (${key}): rows sorted biggest first`, tops.slice(1).every((x, i, a) => i === 0 || a[i - 1] >= x), true);
     const allModelsRow = rows.length ? cellsOf((viewOf(key).match(/<tr[^>]*>[\s\S]*?<\/tr>/g) || [])[1]) : null;
     check(`Daily Trend (${key}): "All Models" counts every model once (families not added twice)`, Number(allModelsRow[1].replace(/,/g, '')), dayWant(FM, key)[0]);
   }
+  // ── projection: leads so far + the last 4 days' average × the days left ──────────────────────────────────────────
+  check('projection maths: 100 so far, 40 in the last 4 days, day 10 of 30 -> 100 + 10/day x 20 days = 300 leads = 75% of a 400 Ask',
+        [F._askProjLeads(100, 40, 4, 10, 30), F._askProjPct(100, 40, 4, 400, 10, 30)], [300, 75]);
+  check('...a finished month projects to what it did; no recent days means no growth; no Ask means no %',
+        [F._askProjLeads(100, 40, 4, 30, 30), F._askProjLeads(100, 0, 0, 10, 30), F._askProjPct(100, 40, 4, 0, 10, 30)], [100, 100, null]);
+  const DAYS = 7, TOT = 31;
+  const sums = (models, dates) => { const o = {all: 0, paid: 0, org: 0, nonms: 0}; for (const c of fcells) if (models.includes(c[0]) && dates.includes(c[2])) { o.all += c[3]; if (['Whatsapp', 'Google', 'Facebook'].includes(c[1])) o.paid += c[3]; else if (c[1] === 'Organic') o.org += c[3]; else o.nonms += c[3]; } return o; };
+  for (const [label, models] of [['one model', ['Hero Passion Plus']], ['a family', FM.filter((m) => m.startsWith('Hero Destini'))], ['the whole brand', FM]]) {
+    const got = F._askRecent(P, models, M0, DAYS), w = sums(models, RECENT);
+    check(`recent leads of ${label}: the last 4 of 7 days, split all / paid / organic / non-MS`, got, {n: 4, ...w});
+  }
+  check('early in the month the window is the days there are (3 days of data -> 3), and no days -> nothing',
+        [F._askRecent(P, FM, M0, 3), F._askRecent(P, FM, M0, 0).n, F._askRecent(P, [], M0, 7).all], [{n: 3, ...sums(FM, FDATES.slice(0, 3))}, 0, 0]);
+  check('every lead-data model of a brand', F._askBrandModels('Hero').slice().sort(), FM.slice().sort());
+  // the model table's projection column, for a model row and a family row
+  const projWant = (models, ask) => { const a = sums(models, FDATES).all, r = sums(models, RECENT).all; return Math.round((a + r / 4 * (TOT - DAYS)) / ask * 100); };
+  const tHtml = F._askModelTable('Hero', M0, TOT, DAYS, 23).split('<div class="ask-day-wrap">')[0];
+  const tRows = tHtml.match(/<tr[^>]*>[\s\S]*?<\/tr>/g).slice(1).map((t) => ({fam: /ask-fam-row/.test(t), c: cellsOf(t)}));
+  const projCol = tRows[0].c.length - 2;   // Proj Month-End sits before Status
+  const rowOf = (name) => tRows.find((r) => r.c[0].replace(/^[▶▼] /, '').replace(/ · .*$/, '') === name);
+  check('model table: "Proj Month-End" of a model = (so far + last-4-day average x days left) / Ask',
+        ['Hero Xtreme 125R', 'Hero Passion Plus'].map((m) => rowOf(m).c[projCol]), ['Hero Xtreme 125R', 'Hero Passion Plus'].map((m) => '~' + projWant([m], ASK[m]) + '%'));
+  check('...and of a family, from the family\'s own totals (not an average of its models\' projections)',
+        ['Hero Glamour', 'Hero Destini', 'Hero Xoom'].map((f) => rowOf(f + ' family').c[projCol]),
+        ['Hero Glamour', 'Hero Destini', 'Hero Xoom'].map((f) => '~' + projWant(FM.filter((m) => m.startsWith(f)), FM.filter((m) => m.startsWith(f)).reduce((a, m) => a + (ASK[m] || 0), 0)) + '%'));
+  check('the column header explains the method', /<th title="[^"]*last 4 days[^"]*">Proj Month-End<\/th>/.test(tHtml), true);
+
   // a Model filter that leaves one Destini: it is shown as the plain row
   check('with a single model of a family left, it is the plain row (no family row)', F._askModelItems({askRows: [{name: 'Hero Destini 125', noAsk: false, ask: 9, act: 5, paidAsk: 1, paidAct: 1, wa: 1, g: 0, f: 0, orgAsk: 1, orgAct: 1}], noAskRows: []}).map((i) => [i.family || null, i.row.name]), [[null, 'Hero Destini 125']]);
+}
+
+console.log('\n== Over / under-delivery lists project from the recent run rate ==');
+{
+  const M0 = "Oct'2026", dates = ['01', '02', '03', '04', '05', '06', '07'].map((d) => '2026-10-' + d);
+  // daily leads so far (7 days of an October of 31): one model speeding up, one slowing down, a flat one, a hopeless one
+  const series = {'Zed Up': [10, 10, 10, 200, 200, 200, 200], 'Zed Down': [300, 300, 300, 10, 10, 10, 10], 'Zed Flat': [100, 100, 100, 100, 100, 100, 100], 'Zed Slow': [20, 20, 20, 20, 20, 20, 20]};
+  const askT = {'Zed Up': 4000, 'Zed Down': 3000, 'Zed Flat': 6000, 'Zed Slow': 10000};
+  const tot = (m) => series[m].reduce((a, c) => a + c, 0);
+  const D3 = {ask_cube: null, model_bu: {}, model_brand: {}, by_brand: {Zed: 1}, brands_all: ['Zed'], brand_date_range: {Zed: {max: '10/07/2026'}},
+              brand_month: {Zed: {[M0]: Object.keys(series).reduce((a, m) => a + tot(m), 0)}}, brand_medium_month: {Zed: {Organic: {[M0]: Object.keys(series).reduce((a, m) => a + tot(m), 0)}}},
+              model_month: {}, model_medium_month: {}, model_date: {}, model_medium_date: {},
+              ask_data: {[M0]: {Zed: Object.fromEntries(Object.entries(askT).map(([m, t]) => [m, {t, o: 0, g: 0, f: 0, p: 0}]))}}};
+  for (const m of Object.keys(series)) {
+    D3.model_brand[m] = {Zed: 1}; D3.model_bu[m] = 'Zed';
+    D3.model_month[m] = {[M0]: tot(m)}; D3.model_medium_month[m] = {Organic: {[M0]: tot(m)}};
+    D3.model_date[m] = {}; D3.model_medium_date[m] = {Organic: {}};
+    dates.forEach((dt, i) => { D3.model_date[m][dt] = series[m][i]; D3.model_medium_date[m].Organic[dt] = series[m][i]; });
+  }
+  const ctx3 = {console, D: D3, MCOL, fState: [], fBU: [], fModel: [], fMedium: [], fBrand: [], fMonth: [], fIMS: ''};
+  vm.createContext(ctx3); vm.runInContext(code, ctx3);
+  const G = ctx3.__api;
+  const d = G._computeAskData(M0);
+  const projNew = (m) => (tot(m) + series[m].slice(3).reduce((a, c) => a + c, 0) / 4 * (31 - 7)) / askT[m] * 100;
+  const projOld = (m) => tot(m) / 7 * 31 / askT[m] * 100;
+  check('the month is partial: 7 of 31 days, pace 23%', [d.isPartial, d.daysElapsed, d.totalDays, d.pacePct], [true, 7, 31, 23]);
+  check('over list: Zed Up (speeding up: 141% from its last 4 days) is flagged; Zed Down (slowed to 10 a day) is not, though its month average still says 139%',
+        [d.overM.map((x) => [x.model, x.proj]), projOld('Zed Down') > 130, projNew('Zed Down') < 130], [[['Zed Up', projNew('Zed Up').toFixed(0)]], true, true]);
+  check('under list: the hopeless model with its recent-rate projection (6% of its Ask)', d.underM.map((x) => [x.model, x.ach, x.proj]), [['Zed Slow', (tot('Zed Slow') / askT['Zed Slow'] * 100).toFixed(1), projNew('Zed Slow').toFixed(0)]]);
+  check('the flat model is on neither list', [...d.overM, ...d.underM].some((x) => x.model === 'Zed Flat'), false);
+  check('a full month has no lists (nothing left to project)', (() => { D3.brand_date_range.Zed.max = '10/31/2026'; const e = G._computeAskData(M0); D3.brand_date_range.Zed.max = '10/07/2026'; return [e.isPartial, e.overM.length, e.underM.length]; })(), [false, 0, 0]);
 }
 
 console.log(`\n${'='.repeat(60)}\n${pass} passed, ${fail} failed`);

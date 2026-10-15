@@ -3116,7 +3116,7 @@ function renderAsk(){
   const daysElapsed=_askDaysElapsed(selMonth);
   const isPartial=daysElapsed<totalDays;
   const pacePct=totalDays>0?Math.round(daysElapsed/totalDays*100):100;
-  const projFactor=daysElapsed>0?totalDays/daysElapsed:1;
+  const runDays=Math.min(_ASK_RUN_DAYS,daysElapsed);   // days whose average drives the month-end projection
   const askMonth=askData[selMonth]||{};
   // Apply top-bar Brand filter
   const allAskBrands=Object.keys(askMonth).sort();
@@ -3132,7 +3132,7 @@ function renderAsk(){
   const noAskBrands=_askNoAskBrands(askMonth,P);
   const scorecardNoAsk=!askBrands.length&&noAskBrands.length>0;
 
-  let grandAsk=0,grandAct=0,grandPaidAsk=0,grandPaidAct=0,grandOrgAsk=0,grandOrgAct=0,grandNonMSAct=0,grandWaAct=0,grandG=0,grandF=0;
+  let grandAsk=0,grandAct=0,grandPaidAsk=0,grandPaidAct=0,grandOrgAsk=0,grandOrgAct=0,grandNonMSAct=0,grandWaAct=0,grandG=0,grandF=0,grandRec=0,grandRecPaid=0,grandRecOrg=0;
   const brandRows=[];
   for(const brand of askBrands){
     const models=askMonth[brand]||{};
@@ -3146,6 +3146,8 @@ function renderAsk(){
     const bNonMSAct=act.nonms;
     const bWaAct=act.wa;
     const bG=act.g,bF=act.f;
+    const rc=isPartial?_askRecent(P,_askBrandModels(brand),selMonth,daysElapsed):{n:0,all:0,paid:0,org:0};
+    grandRec+=rc.all;grandRecPaid+=rc.paid;grandRecOrg+=rc.org;
     // Brand can appear in the Ask sheet before it has any live CPS delivery (e.g. an OEM
     // being onboarded) — that's a forward-looking placeholder, not a confirmed commitment.
     // Detect via zero ALL-TIME actual leads and keep it out of the aggregate scorecard so
@@ -3153,10 +3155,11 @@ function renderAsk(){
     const askConfirmed=(D.by_brand?.[brand]||0)>0;
     if(askConfirmed){grandAsk+=ba;grandPaidAsk+=bpa;grandOrgAsk+=boa;}
     grandAct+=bAct;grandPaidAct+=bPaidAct;grandOrgAct+=bOrgAct;grandNonMSAct+=bNonMSAct;grandWaAct+=bWaAct;grandG+=bG;grandF+=bF;
-    brandRows.push({brand,ask:ba,act:bAct,paidAsk:bpa,paidAct:bPaidAct,orgAsk:boa,orgAct:bOrgAct,nonMSAct:bNonMSAct,waAct:bWaAct,gAct:bG,fAct:bF,askConfirmed});
+    brandRows.push({brand,ask:ba,act:bAct,paidAsk:bpa,paidAct:bPaidAct,orgAsk:boa,orgAct:bOrgAct,nonMSAct:bNonMSAct,waAct:bWaAct,gAct:bG,fAct:bF,askConfirmed,rec:rc.all,recN:rc.n});
   }
   // Every selected brand lacks an Ask: show their Actuals in the scorecard (Ask 'not set')
-  if(scorecardNoAsk)for(const x of noAskBrands){grandAct+=x.a.total;grandPaidAct+=x.a.paid;grandOrgAct+=x.a.org;grandNonMSAct+=x.a.nonms;grandWaAct+=x.a.wa;grandG+=x.a.g;grandF+=x.a.f;}
+  if(scorecardNoAsk)for(const x of noAskBrands){grandAct+=x.a.total;grandPaidAct+=x.a.paid;grandOrgAct+=x.a.org;grandNonMSAct+=x.a.nonms;grandWaAct+=x.a.wa;grandG+=x.a.g;grandF+=x.a.f;
+    if(isPartial){const rc=_askRecent(P,_askBrandModels(x.brand),selMonth,daysElapsed);grandRec+=rc.all;grandRecPaid+=rc.paid;grandRecOrg+=rc.org;}}
   brandRows.sort((a,b)=>b.ask-a.ask);
 
   let html=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap">
@@ -3168,7 +3171,7 @@ function renderAsk(){
 
   if(isPartial){
     html+=`<div style="background:var(--hover);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:.82rem;color:var(--muted)">
-      Period: <strong style="color:var(--txt)">${daysElapsed}/${totalDays} days</strong> (${pacePct}% of month done) &nbsp;|&nbsp; Benchmark: need <strong style="color:var(--txt)">${pacePct}%+</strong> to be on-pace &nbsp;|&nbsp; Projected = MTD ÷ ${pacePct}% × 100%
+      Period: <strong style="color:var(--txt)">${daysElapsed}/${totalDays} days</strong> (${pacePct}% of month done) &nbsp;|&nbsp; Benchmark: need <strong style="color:var(--txt)">${pacePct}%+</strong> to be on-pace &nbsp;|&nbsp; Projected = leads so far + the last ${runDays} days' daily average × ${totalDays-daysElapsed} days left
     </div>`;
   }else{
     html+=`<div style="background:var(--hover);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:.82rem;color:var(--muted)">
@@ -3184,17 +3187,17 @@ function renderAsk(){
   <div style="font-size:.76rem;color:var(--muted);margin:-4px 0 8px">Paid = CTWA (leads from the WhatsApp source) + Google + Facebook. Non-MS has no Ask target in the source sheet — shown here so Actual always fully accounts for every lead.</div>
   <table class="tbl" style="margin-bottom:24px"><thead><tr>
     <th>Source</th><th>Ask</th><th>Actual (MTD)</th><th>ACH%</th>
-    ${isPartial?'<th>Projected Month-End</th>':''}
+    ${isPartial?`<th title="${_ASK_PROJ_TIP}">Projected Month-End</th>`:''}
     <th>Status</th>
   </tr></thead><tbody>`;
 
-  for(const [label,askV,actV,sub] of [
-    ['Total Leads',grandAsk,grandAct],
-    ['Paid (CTWA + Google + FB)',grandPaidAsk,grandPaidAct],
+  for(const [label,askV,actV,sub,recV] of [
+    ['Total Leads',grandAsk,grandAct,0,grandRec],
+    ['Paid (CTWA + Google + FB)',grandPaidAsk,grandPaidAct,0,grandRecPaid],
     ['↳ CTWA (WhatsApp)',null,grandWaAct,1],
     ['↳ Google',null,grandG,1],
     ['↳ Facebook',null,grandF,1],
-    ['Organic',grandOrgAsk,grandOrgAct],
+    ['Organic',grandOrgAsk,grandOrgAct,0,grandRecOrg],
     ['Non-MS',null,grandNonMSAct]
   ]){
     if(sub){
@@ -3204,7 +3207,7 @@ function renderAsk(){
     }
     const hasAsk=askV!=null&&!((P.cube||scorecardNoAsk)&&!askV);   // a Model / BU filter can leave no Ask to measure against
     const achPct=!noAch&&hasAsk&&askV>0?(actV/askV*100):null;
-    const projAch=!noAch&&hasAsk&&isPartial&&daysElapsed>0&&askV>0?Math.round(actV/daysElapsed*totalDays/askV*100):null;
+    const projAch=!noAch&&hasAsk&&isPartial&&daysElapsed>0&&askV>0?Math.round(_askProjPct(actV,recV||0,runDays,askV,daysElapsed,totalDays)):null;
     const achNum=achPct||0;
     const st=hasAsk?(noAch?'<span style="color:var(--muted)">—</span>':_askStatus(achNum,pacePct)):'<span style="color:var(--muted);font-style:italic;font-size:.78rem">No ask set</span>';
     html+=`<tr>
@@ -3225,7 +3228,7 @@ function renderAsk(){
     <th>Paid Ask</th><th>Paid Actual</th><th title="Click-to-WhatsApp: leads whose source is WhatsApp">CTWA</th><th>Google</th><th>FB</th><th>Paid ACH%</th>
     <th>Org Ask</th><th>Org Actual</th><th>Org ACH%</th>
     <th>Non-MS Actual</th>
-    ${isPartial?'<th>Proj</th>':''}
+    ${isPartial?`<th title="${_ASK_PROJ_TIP}">Proj</th>`:''}
     <th>Status</th>
   </tr></thead><tbody>`;
 
@@ -3254,7 +3257,7 @@ function renderAsk(){
     const paidAchPct=!noAch&&bd.paidAsk>0?(bd.paidAct/bd.paidAsk*100):null;
     const orgAchPct=!noAch&&bd.orgAsk>0?(bd.orgAct/bd.orgAsk*100):null;
     const achNum=achPct||0;
-    const projAch=!noAch&&isPartial&&daysElapsed>0&&bd.ask>0?'~'+Math.round(bd.act/daysElapsed*totalDays/bd.ask*100)+'%':null;
+    const projAch=!noAch&&isPartial&&daysElapsed>0&&bd.ask>0?'~'+Math.round(_askProjPct(bd.act,bd.rec||0,bd.recN||0,bd.ask,daysElapsed,totalDays))+'%':null;
     const st=(noAch||(P.cube&&!bd.ask))?'<span style="color:var(--muted)">—</span>':_askStatus(achNum,pacePct);
     html+=`<tr style="cursor:pointer" onclick="_toggleAskBrand('${rowId}','${bd.brand.replace(/'/g,"\\'")}','${selMonthEsc}',${totalDays},${daysElapsed},${pacePct})">
       <td style="font-weight:600"><span id="${rowId}-arr">${autoExpandModels?'▼':'▶'}</span> ${bd.brand}</td>
@@ -3286,26 +3289,12 @@ function renderAsk(){
   // placeholder target shouldn't trigger a "critical under-delivery" alert.
   if(isPartial&&daysElapsed>0&&!noAch){
     const confirmedBrandSet=new Set(brandRows.filter(bd=>bd.askConfirmed).map(bd=>bd.brand));
-    const overM=[],underM=[];
-    for(const [brand,models] of Object.entries(askMonth)){
-      if(!confirmedBrandSet.has(brand))continue;
-      for(const [model,av] of Object.entries(models)){
-        const askT=av.t;if(!askT||askT<500)continue;
-        if(!P.askRowVisible(model))continue;
-        const act=P.askRow(model);
-        const achPct=act/askT*100;
-        const projEndPct=achPct/(daysElapsed/totalDays);
-        if(projEndPct>130)overM.push({brand,model,ask:askT,act,ach:achPct.toFixed(1),proj:projEndPct.toFixed(0)});
-        else if(achPct<pacePct*0.5&&askT>=2000)underM.push({brand,model,ask:askT,act,ach:achPct.toFixed(1),proj:projEndPct.toFixed(0)});
-      }
-    }
-    overM.sort((a,b)=>parseFloat(b.proj)-parseFloat(a.proj));
-    underM.sort((a,b)=>b.ask-a.ask);
+    const {overM,underM}=_askAlertLists(P,askMonth,selMonth,confirmedBrandSet,daysElapsed,totalDays,pacePct);
 
     if(overM.length){
       html+=`<div class="ctitle-row"><div class="ctitle">⚠️ Budget Mis-Allocation — Pacing &gt;130% of Ask</div><div style="display:flex;gap:6px"><button class="exp-btn" onclick="exportAskTable('${selMonthEsc}','overspend')">⬇ Word</button><button class="exp-btn" onclick="exportAskTableXlsx('${selMonthEsc}','overspend')">⬇ Excel</button></div></div>
       <table class="tbl" style="margin-bottom:24px"><thead><tr>
-        <th>Brand</th><th>Model</th><th>Full Month Ask</th><th>MTD Actual</th><th>ACH% (${daysElapsed}d)</th><th>Projected Month-End</th>
+        <th>Brand</th><th>Model</th><th>Full Month Ask</th><th>MTD Actual</th><th>ACH% (${daysElapsed}d)</th><th title="${_ASK_PROJ_TIP}">Projected Month-End</th>
       </tr></thead><tbody>`;
       for(const m of overM.slice(0,10)){
         html+=`<tr><td>${m.brand}</td><td style="font-weight:600">${m.model}</td>
@@ -3319,7 +3308,7 @@ function renderAsk(){
     if(underM.length){
       html+=`<div class="ctitle-row"><div class="ctitle">🚨 Critical Under-Delivery — High Volume Models</div><div style="display:flex;gap:6px"><button class="exp-btn" onclick="exportAskTable('${selMonthEsc}','underdeliver')">⬇ Word</button><button class="exp-btn" onclick="exportAskTableXlsx('${selMonthEsc}','underdeliver')">⬇ Excel</button></div></div>
       <table class="tbl" style="margin-bottom:24px"><thead><tr>
-        <th>Brand</th><th>Model</th><th>Full Month Ask</th><th>MTD Actual</th><th>ACH% (${daysElapsed}d)</th><th>Projected Month-End</th><th>Action</th>
+        <th>Brand</th><th>Model</th><th>Full Month Ask</th><th>MTD Actual</th><th>ACH% (${daysElapsed}d)</th><th title="${_ASK_PROJ_TIP}">Projected Month-End</th><th>Action</th>
       </tr></thead><tbody>`;
       for(const m of underM.slice(0,15)){
         const pN=parseFloat(m.proj);
@@ -3487,23 +3476,10 @@ function _computeAskData(month){
   // Budget mis-allocation / under-delivery model lists (same thresholds as renderAsk())
   // Skip brands whose Ask isn't confirmed yet (no live delivery ever) — an unconfirmed
   // placeholder target shouldn't trigger a "critical under-delivery" alert.
-  const overM=[],underM=[];
+  let overM=[],underM=[];
   if(isPartial&&daysElapsed>0&&!noAch){
     const confirmedBrands=new Set(brandRows.filter(bd=>bd.askConfirmed).map(bd=>bd.brand));
-    for(const brand of askBrands){
-      if(!confirmedBrands.has(brand))continue;
-      for(const[model,av]of Object.entries(askMonth[brand]||{})){
-        const askT=av.t;if(!askT||askT<500)continue;
-        if(!P.askRowVisible(model))continue;
-        const act=P.askRow(model);
-        const achPct=act/askT*100;
-        const projEndPct=achPct/(daysElapsed/totalDays);
-        if(projEndPct>130)overM.push({brand,model,ask:askT,act,ach:achPct.toFixed(1),proj:projEndPct.toFixed(0)});
-        else if(achPct<pacePct*0.5&&askT>=2000)underM.push({brand,model,ask:askT,act,ach:achPct.toFixed(1),proj:projEndPct.toFixed(0)});
-      }
-    }
-    overM.sort((a,b)=>parseFloat(b.proj)-parseFloat(a.proj));
-    underM.sort((a,b)=>b.ask-a.ask);
+    ({overM,underM}=_askAlertLists(P,askMonth,month,confirmedBrands,daysElapsed,totalDays,pacePct));
   }
 
   return{month,noAch,cube:P.cube,noAskBrands,scorecardNoAsk,totalDays,daysElapsed,isPartial,pacePct,grandAsk,grandAct,grandPaidAsk,grandPaidAct,grandOrgAsk,grandOrgAct,grandNonMSAct,grandWaAct,grandG,grandF,brandRows,overM,underM};
@@ -3862,21 +3838,22 @@ const _askFamId=(kind,brand,family)=>'ask-fam-'+kind+'-'+(brand+'-'+family).toLo
 // One entry per row of the model table, from the same provider every other figure on the tab uses:
 // {name, noAsk, ask, act, paidAsk, paidAct, wa, g, f, orgAsk, orgAct}. `visible` = the brand's Ask entries that survive the
 // Model / BU filters (Ask rows with no target included), which the Daily Trend is built from too.
-function _askModelRows(P,brand,month){
+function _askModelRows(P,brand,month,daysElapsed){
   const models=D.ask_data?.[month]?.[brand]||{};
   const visible=Object.entries(models).filter(([mn])=>P.askRowVisible(mn)).sort(([,a],[,b])=>b.t-a.t);
   const askRows=[],covered=new Set();
   for(const [model,av] of visible){
     if(!av.t)continue;
-    _askResolveVariants(model,month).forEach(v=>covered.add(v));
-    const act=P.askRow(model),sp=P.askRowSplit(model);
-    askRows.push({name:model,noAsk:false,ask:av.t,act,paidAsk:_askPaid(av),paidAct:sp.g+sp.f+sp.wa,wa:sp.wa,g:sp.g,f:sp.f,orgAsk:av.o||0,orgAct:sp.org});
+    const vs=_askResolveVariants(model,month);
+    vs.forEach(v=>covered.add(v));
+    const act=P.askRow(model),sp=P.askRowSplit(model),rc=_askRecent(P,vs,month,daysElapsed);
+    askRows.push({name:model,noAsk:false,ask:av.t,act,paidAsk:_askPaid(av),paidAct:sp.g+sp.f+sp.wa,wa:sp.wa,g:sp.g,f:sp.f,orgAsk:av.o||0,orgAct:sp.org,rec:rc.all,recN:rc.n});
   }
   // Models this brand delivers on that have no Ask target — included so the rows sum to the brand's real Actual
-  const noAskRows=_askOtherGroups(P,brand,covered).map(g=>({name:g.name,noAsk:true,ask:0,act:g.actual,paidAsk:0,paidAct:g.paid,wa:g.wa,g:g.goog,f:g.fb,orgAsk:0,orgAct:g.org}));
+  const noAskRows=_askOtherGroups(P,brand,covered).map(g=>{const rc=_askRecent(P,g.members,month,daysElapsed);return {name:g.name,noAsk:true,ask:0,act:g.actual,paidAsk:0,paidAct:g.paid,wa:g.wa,g:g.goog,f:g.fb,orgAsk:0,orgAct:g.org,rec:rc.all,recN:rc.n};});
   return {visible,askRows,noAskRows};
 }
-const _ASK_SUM_KEYS=['ask','act','paidAsk','paidAct','wa','g','f','orgAsk','orgAct'];
+const _ASK_SUM_KEYS=['ask','act','paidAsk','paidAct','wa','g','f','orgAsk','orgAct','rec'];
 function _askSumRows(rows){
   const o={};for(const k of _ASK_SUM_KEYS)o[k]=0;
   for(const r of rows)for(const k of _ASK_SUM_KEYS)o[k]+=r[k];
@@ -3890,7 +3867,7 @@ function _askModelItems(R){
     if(!it.family)return {row:it.row};
     const members=it.members.slice().sort((a,b)=>b.ask-a.ask);
     const total=_askSumRows(members);
-    return {family:it.family,members,row:Object.assign({name:it.family+' family',noAsk:total.ask===0},total)};
+    return {family:it.family,members,row:Object.assign({name:it.family+' family',noAsk:total.ask===0,recN:members[0].recN},total)};
   });
   return items.filter(i=>!i.row.noAsk).sort((a,b)=>b.row.ask-a.row.ask).concat(items.filter(i=>i.row.noAsk));
 }
@@ -3900,7 +3877,7 @@ function _askRowMetrics(r,noAch,isPartial,daysElapsed,totalDays,pacePct){
   const achNum=achPct||0;
   return {
     achPct,achNum,
-    projAch:!noAch&&isPartial&&daysElapsed>0&&r.ask>0?'~'+Math.round(r.act/daysElapsed*totalDays/r.ask*100)+'%':null,
+    projAch:!noAch&&isPartial&&daysElapsed>0&&r.ask>0?'~'+Math.round(_askProjPct(r.act,r.rec||0,r.recN||0,r.ask,daysElapsed,totalDays))+'%':null,
     st:noAch?'<span style="color:var(--muted)">—</span>':_askStatus(achNum,pacePct),
     paidAch:!noAch&&r.paidAsk>0?(r.paidAct/r.paidAsk*100):null,
     orgAch:!noAch&&r.orgAsk>0?(r.orgAct/r.orgAsk*100):null
@@ -3969,7 +3946,7 @@ function _askModelExportRows(P,brand,month){
 function _askModelTable(brand,month,totalDays,daysElapsed,pacePct){
   const P=_askActuals(month);
   const noAch=_askNoAch(month);
-  const R=_askModelRows(P,brand,month);
+  const R=_askModelRows(P,brand,month,daysElapsed);
   if(!R.visible.length&&!P.otherModels(brand,new Set()).length)return `<div style="color:var(--muted);font-size:.82rem;padding:8px">${P.cube?'No models match the current filters.':'No model data.'}</div>`;
   const isPartial=daysElapsed<totalDays;
   const brandEsc=brand.replace(/'/g,"\\'");
@@ -3979,7 +3956,7 @@ function _askModelTable(brand,month,totalDays,daysElapsed,pacePct){
   <table class="tbl" style="font-size:.82rem;margin:8px 0"><thead><tr>
     <th>Model</th><th>Ask (Total)</th><th>Actual (MTD)</th><th>ACH%</th>
     <th>Paid Ask</th><th>Paid Actual</th><th title="Click-to-WhatsApp: leads whose source is WhatsApp">CTWA</th><th>Google</th><th>FB</th><th>Paid ACH%</th><th>Org Ask</th><th>Org Actual</th><th>Org ACH%</th>
-    ${isPartial?'<th>Proj Month-End</th>':''}
+    ${isPartial?`<th title="${_ASK_PROJ_TIP}">Proj Month-End</th>`:''}
     <th>Status</th>
   </tr></thead><tbody>`;
   const ro={noAch,isPartial,daysElapsed,totalDays,pacePct};
@@ -4009,6 +3986,63 @@ function _askModelDayActual(variants,dateStr){
   }
   return variants.reduce((s,vr)=>s+fMedium.reduce((ss,med)=>
     ss+(D.model_medium_date?.[vr]?.[med]?.[dateStr]||0),0),0);
+}
+// ── Month-end projection from the recent run rate ─────────────────────────────────────────────────────────────
+// Projected month-end = leads so far + the average daily leads of the last 4 days with data × the days still to come, as a %
+// of the Ask (it used to extrapolate the whole month's average). Every source counts, as filtered by the top bar.
+const _ASK_RUN_DAYS=4;
+const _ASK_PROJ_TIP="Leads so far + the average of the last 4 days (all sources) × the days left, as a % of the Ask";
+// Leads in the last 4 days with data (fewer early in the month) behind a set of lead-data models:
+// {n: days used, all, paid (CTWA + Google + Facebook), org, nonms}
+function _askRecent(P,models,month,daysElapsed){
+  const mp=month.match(/^([A-Za-z]+)'(\d{4})$/);
+  const n=Math.max(0,Math.min(_ASK_RUN_DAYS,daysElapsed||0));
+  const out={n,all:0,paid:0,org:0,nonms:0};
+  if(!mp||!n||!models.length)return out;
+  const prefix=mp[2]+'-'+(_ASK_MONTH_NUM[mp[1]]||'00');
+  for(let d=daysElapsed-n+1;d<=daysElapsed;d++){
+    const sm=P.daySrc(models,prefix+'-'+String(d).padStart(2,'0'));
+    for(const med in sm){
+      const v=sm[med];
+      out.all+=v;
+      if(med==='Whatsapp'||med==='Google'||med==='Facebook')out.paid+=v;
+      else if(med==='Organic')out.org+=v;
+      else if(med==='Non-MS')out.nonms+=v;
+    }
+  }
+  return out;
+}
+// Projected month-end leads, and as a % of the Ask (null when there is no Ask)
+function _askProjLeads(act,recentSum,recentDays,daysElapsed,totalDays){
+  return act+(recentDays>0?recentSum/recentDays:0)*Math.max(0,totalDays-daysElapsed);
+}
+function _askProjPct(act,recentSum,recentDays,ask,daysElapsed,totalDays){
+  return ask>0?_askProjLeads(act,recentSum,recentDays,daysElapsed,totalDays)/ask*100:null;
+}
+// Every lead-data model of a brand
+function _askBrandModels(brand){
+  return Object.keys(D.model_brand||{}).filter(m=>(D.model_brand[m]||{})[brand]>0);
+}
+// Budget mis-allocation / under-delivery model lists of a partial month: over = projected above 130% of its Ask, under = well
+// behind pace. brandSet = brands whose Ask is confirmed.
+function _askAlertLists(P,askMonth,month,brandSet,daysElapsed,totalDays,pacePct){
+  const overM=[],underM=[];
+  for(const [brand,models] of Object.entries(askMonth)){
+    if(!brandSet.has(brand))continue;
+    for(const [model,av] of Object.entries(models)){
+      const askT=av.t;if(!askT||askT<500)continue;
+      if(!P.askRowVisible(model))continue;
+      const act=P.askRow(model);
+      const achPct=act/askT*100;
+      const rc=_askRecent(P,_askResolveVariants(model,month),month,daysElapsed);
+      const projEndPct=_askProjPct(act,rc.all,rc.n,askT,daysElapsed,totalDays);
+      if(projEndPct>130)overM.push({brand,model,ask:askT,act,ach:achPct.toFixed(1),proj:projEndPct.toFixed(0)});
+      else if(achPct<pacePct*0.5&&askT>=2000)underM.push({brand,model,ask:askT,act,ach:achPct.toFixed(1),proj:projEndPct.toFixed(0)});
+    }
+  }
+  overM.sort((a,b)=>parseFloat(b.proj)-parseFloat(a.proj));
+  underM.sort((a,b)=>b.ask-a.ask);
+  return {overM,underM};
 }
 // Source-wise counterpart of _askModelDayActual: {source: leads} on one day (honours the Source filter).
 function _askModelDaySrc(variants,dateStr){
