@@ -27,7 +27,7 @@ const code = [
   pick('function _toggleAskBrand(', 'function _askModelDayActual('),   // model families, the model table
   pick('function _computeAskData(', 'function _askScorecardTableXml('),   // the report data (alert lists)
   pick('function _askModelDayActual(', '</script>'),   // day-level helpers + the Daily Trend table
-  ';globalThis.__api={_askActuals,_askUseCube,_askNoAch,_askFilterNote,_askFilterText,_askCubeIdx,_askExtraFilters,_askNoAskBrands,_askNoAskNote,_askFoldNoAsk,_askOtherGroups,_askOtherDayGroups,_askRowDaySrc,_askPickSrc,_askModelDailyTable,_ASK_DAY_SRCS,_askFamilyOf,_askClub,_askModelRows,_askModelItems,_askModelRowHtml,_askModelTable,_askModelExportRows,_askRowMetrics,_askRecent,_askProjLeads,_askProjPct,_askBrandModels,_askAlertLists,_computeAskData};',
+  ';globalThis.__api={_askActuals,_askUseCube,_askNoAch,_askFilterNote,_askFilterText,_askCubeIdx,_askExtraFilters,_askNoAskBrands,_askNoAskNote,_askFoldNoAsk,_askOtherGroups,_askOtherDayGroups,_askRowDaySrc,_askPickSrc,_askModelDailyTable,_ASK_DAY_SRCS,_askFamilyOf,_askClub,_askModelRows,_askModelItems,_askModelRowHtml,_askModelTable,_askModelExportRows,_askRowMetrics,_askRecent,_askProjLeads,_askProjPct,_askBrandModels,_askAlertLists,_computeAskData,_askPickMonth};',
 ].join('\n');
 
 // ── synthetic data ────────────────────────────────────────────────────────────────────────
@@ -611,6 +611,23 @@ console.log('\n== Over / under-delivery lists project from the recent run rate =
   check('under list: the hopeless model with its recent-rate projection (6% of its Ask)', d.underM.map((x) => [x.model, x.ach, x.proj]), [['Zed Slow', (tot('Zed Slow') / askT['Zed Slow'] * 100).toFixed(1), projNew('Zed Slow').toFixed(0)]]);
   check('the flat model is on neither list', [...d.overM, ...d.underM].some((x) => x.model === 'Zed Flat'), false);
   check('a full month has no lists (nothing left to project)', (() => { D3.brand_date_range.Zed.max = '10/31/2026'; const e = G._computeAskData(M0); D3.brand_date_range.Zed.max = '10/07/2026'; return [e.isPartial, e.overM.length, e.underM.length]; })(), [false, 0, 0]);
+}
+
+console.log('\n== The month the Ask tab opens on, and the months it lists ==');
+{
+  const ASKM = ["Apr'2026", "May'2026", "Jun'2026", "Jul'2026", "Aug'2026", "Sep'2026", "Oct'2026", "Nov'2026", "Dec'2026"];
+  const PRES = ["Apr'2025", "May'2025", "Jan'2026", "Aug'2026", "Sep'2026", "Oct'2026"];   // lead data runs to Oct'26
+  const pick = (filter, cur, changed) => A._askPickMonth(ASKM, PRES, filter, cur, changed);
+  check('no Month filter: opens on the latest month with lead data (Oct), not on Dec which has an Ask but no leads yet', pick([], undefined, true), "Oct'2026");
+  check('Month filter = Oct: opens on Oct', pick(["Oct'2026"], undefined, true), "Oct'2026");
+  check('Month filter = Sep + Oct: opens on the latest of them', pick(["Sep'2026", "Oct'2026"], undefined, true), "Oct'2026");
+  check('Month filter = Aug: opens on Aug', pick(["Aug'2026"], undefined, true), "Aug'2026");
+  check('the user\'s own pick (Sep) is kept while the Month filter stays the same — even though the filter only has Oct', pick(["Oct'2026"], "Sep'2026", false), "Sep'2026");
+  check('...but a changed Month filter re-chooses the month', pick(["Aug'2026"], "Sep'2026", true), "Aug'2026");
+  check('a previously chosen month that is no longer offered falls back to the default', A._askPickMonth(["Aug'2026", "Sep'2026"], PRES, [], "Dec'2026", false), "Sep'2026");
+  check('a Month filter on months that have no Ask falls back to the latest month with leads', pick(["Jan'2026"], undefined, true), "Oct'2026");
+  check('when no Ask month has lead data at all, the last Ask month is used', A._askPickMonth(["Nov'2026", "Dec'2026"], PRES, [], undefined, true), "Dec'2026");
+  check('an empty drop-down choice is handled (nothing selected yet, filter unchanged)', pick([], '', false), "Oct'2026");
 }
 
 console.log(`\n${'='.repeat(60)}\n${pass} passed, ${fail} failed`);

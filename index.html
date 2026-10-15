@@ -3092,6 +3092,17 @@ function _achColor(ach, pace){
 const _fmtN=n=>n!=null?n.toLocaleString('en-IN'):'—';
 const _fmtP=(p,d=1)=>p!=null?p.toFixed(d)+'%':'—';
 
+// Which month the Ask tab opens on. Every month that has an Ask is in the drop-down — the top-bar Month filter used to cut the list
+// down to the filtered months, so filtering on Oct'26 left no way to look at Sep'26. The month shown: the user's own pick, kept until
+// the top-bar Month filter changes; else the latest filtered month that has an Ask; else the latest month with lead data (the Ask
+// sheet runs on to Dec'26, which has no leads yet); else the last month in the Ask.
+function _askPickMonth(askMonths,monthsPresent,monthFilter,curSel,filterChanged){
+  if(curSel&&askMonths.includes(curSel)&&!filterChanged)return curSel;
+  const fromFilter=monthFilter.length?askMonths.filter(m=>monthFilter.includes(m)).pop():null;
+  const latestData=[...monthsPresent].reverse().find(m=>askMonths.includes(m));
+  return fromFilter||latestData||askMonths[askMonths.length-1];
+}
+let _askMonthFilterKey=null;   // the top-bar Month filter the tab last rendered with
 function renderAsk(){
   const body=document.getElementById('ask-body');
   if(!body)return;
@@ -3103,11 +3114,12 @@ function renderAsk(){
     return (parseInt(pa[2])*12+(mv[pa[1]]||0))-(parseInt(pb[2])*12+(mv[pb[1]]||0));
   });
   if(!askMonths.length){body.innerHTML='<div style="color:var(--muted);padding:20px">No ask data available.</div>';return;}
-  // Restrict months to intersection with top-bar Month filter
-  const filteredAskMonths=_hasF(fMonth)?askMonths.filter(m=>fMonth.includes(m)):askMonths;
-  const availAskMonths=filteredAskMonths.length?filteredAskMonths:askMonths;
-  const curSel=document.getElementById('ask-month-sel')?.value;
-  const selMonth=(curSel&&availAskMonths.includes(curSel))?curSel:availAskMonths[availAskMonths.length-1];
+  // Every month with an Ask is selectable; the top-bar Month filter only chooses which one the tab opens on (see _askPickMonth)
+  const availAskMonths=askMonths;
+  const mfKey=fMonth.slice().sort().join('|');
+  const mfChanged=mfKey!==_askMonthFilterKey;
+  _askMonthFilterKey=mfKey;
+  const selMonth=_askPickMonth(askMonths,D.months_present||[],fMonth,document.getElementById('ask-month-sel')?.value,mfChanged);
   // Month strings always contain a literal apostrophe (e.g. "Aug'2026") — embedding them
   // raw into a single-quoted onclick="fn('${selMonth}')" attribute breaks the JS as soon
   // as the apostrophe closes the string early. Escape once, use everywhere below.
