@@ -1064,6 +1064,12 @@ def load_ask_data(sheets_svc):
             # Unmapped, the Ask row showed Actual 0 / 0% while the real leads sat on a 'no ask' row.
             'Hero Karizma': 'Hero Karizma XMR',
             'BSA Scrambler': 'BSA Scrambler 650',
+            # Same product, spelt differently in the Ask sheet and in the lead data. Unmapped, the Ask row shows
+            # Actual 0 while the real leads sit on a '· no ask' row (found by comparing every Ask row with the
+            # lead-data model names, 2026-10-19).
+            'Apache RTR 160 4V': 'TVS Apache RTR 160 4V',          # the Ask sheet drops the 'TVS ' prefix, like the other Apache rows
+            'BSA GoldStar': 'BSA Gold Star',
+            'Bajaj Avenger Street 220': 'Bajaj Avenger 220 Street',
         }
         # OEM column values → dashboard brand names
         brand_map = {'Ampere': 'Ampere Electric', 'OLA': 'Ola Electric', 'Jawa/Yezdi': 'Jawa'}
@@ -1094,8 +1100,13 @@ def load_ask_data(sheets_svc):
                 p = int(row[pc] or 0) if pc is not None and len(row) > pc and row[pc] else 0
                 if t == 0 and o == 0 and g == 0 and f == 0 and p == 0:
                     continue
-                result.setdefault(month, {}).setdefault(brand, {})[model] = \
-                    {'t': t, 'o': o, 'g': g, 'f': f, 'p': p}
+                cell = {'t': t, 'o': o, 'g': g, 'f': f, 'p': p}
+                prev = result.setdefault(month, {}).setdefault(brand, {}).get(model)
+                if prev:
+                    # two sheet rows end up on one lead-data model (e.g. a renamed row left beside the new one): add
+                    # them up rather than letting the later row silently replace the earlier one
+                    cell = {k: prev[k] + cell[k] for k in cell}
+                result[month][brand][model] = cell
 
         months_loaded = {m: sum(len(b) for b in brands.values()) for m, brands in result.items()}
         print(f"Loaded ask_data from Sheet '{ASK_SHEET_TAB}': {months_loaded}")

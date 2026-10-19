@@ -15,6 +15,7 @@ dashboard header. Exit code is non-zero if any check fails.
 import sys, os, json, gzip, shutil, tempfile, io, contextlib, copy
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import refresh_data as rd
+_real_load_ask_data = rd.load_ask_data     # main() is driven with a stub below; RUN 27 tests the real one
 
 TMP = tempfile.mkdtemp(prefix="simmain_")
 os.makedirs(os.path.join(TMP, "data"))
@@ -706,6 +707,40 @@ try:
 except ValueError as e:
     overflow_ok = "widen FACT_BITS" in str(e)
 check("a dictionary outgrowing its bit width fails loudly instead of corrupting the table", overflow_ok)
+
+# ============ RUN 27: Consol Ask sheet names are mapped onto the lead data's model names =============
+print("\n== RUN 27: load_ask_data (Ask sheet model names -> lead-data model names) ==")
+class _FakeSheets:
+    """Just enough of the Sheets client for spreadsheets().values().get(...).execute()."""
+    def __init__(self, rows): self.rows = rows
+    def spreadsheets(self): return self
+    def values(self): return self
+    def get(self, **kw): return self
+    def execute(self): return {"values": self.rows}
+_ask_rows = [
+    ["Consol Ask"],
+    [],
+    ["OEM", "BU", "Model", "Oct'26", None, None, None, "Nov'26", None, None, None],
+    [None, None, None, "Total Leads", "Organic", "Google", "FB", "Total Leads", "Organic", "Google", "FB"],
+    ["TVS", "TVS", "Apache RTR 160 4V", 17969, 2300, 7000, 8669, 0, 0, 0, 0],            # no 'TVS ' prefix in the sheet
+    [None, None, "Apache RTR 160", 30779, 6700, 10000, 14079, 20000, 4000, 6000, 10000],
+    ["Jawa/Yezdi", "Jawa", "BSA GoldStar", 300, 60, 100, 140, 300, 60, 100, 140],
+    ["Bajaj", "MC", "Bajaj Avenger Street 220", 300, 100, 100, 100, 300, 100, 100, 100],
+    ["Hero", "Hero", "Hero Super Splendor XTEC", 1000, 200, 300, 500, 0, 0, 0, 0],
+    [None, None, "Hero Super Splendor", 50, 10, 15, 25, 0, 0, 0, 0],                       # maps onto the XTEC row: summed, not overwritten
+    ["OLA", "Ola Electric", "OLA S1 Pro", 700, 100, 200, 400, 0, 0, 0, 0],
+]
+ask27 = _real_load_ask_data(_FakeSheets(_ask_rows))
+check("sheet 'Apache RTR 160 4V' becomes the lead data's 'TVS Apache RTR 160 4V' (and the unprefixed name is gone)",
+      ask27["Oct'2026"]["TVS"].get("TVS Apache RTR 160 4V") == {"t": 17969, "o": 2300, "g": 7000, "f": 8669, "p": 0} and "Apache RTR 160 4V" not in ask27["Oct'2026"]["TVS"],
+      ask27["Oct'2026"]["TVS"])
+check("the existing Apache mappings still work", "TVS Apache RTR 160" in ask27["Oct'2026"]["TVS"] and ask27["Nov'2026"]["TVS"]["TVS Apache RTR 160"]["t"] == 20000)
+check("'BSA GoldStar' -> 'BSA Gold Star' under brand Jawa", ask27["Oct'2026"]["Jawa"].get("BSA Gold Star", {}).get("t") == 300, ask27["Oct'2026"]["Jawa"])
+check("'Bajaj Avenger Street 220' -> 'Bajaj Avenger 220 Street'", ask27["Oct'2026"]["Bajaj"].get("Bajaj Avenger 220 Street", {}).get("t") == 300, ask27["Oct'2026"]["Bajaj"])
+check("a row with no target in a month is left out of that month (Nov has no Apache RTR 160 4V)", "TVS Apache RTR 160 4V" not in ask27["Nov'2026"].get("TVS", {}), ask27["Nov'2026"])
+check("two sheet rows that land on one lead-data model are added up, not overwritten",
+      ask27["Oct'2026"]["Hero"]["Hero Super Splendor XTEC"] == {"t": 1050, "o": 210, "g": 315, "f": 525, "p": 0}, ask27["Oct'2026"]["Hero"])
+check("brand names are mapped too (OLA -> Ola Electric)", "Ola S1 Pro" in ask27["Oct'2026"]["Ola Electric"], list(ask27["Oct'2026"]))
 
 print(f"\n{'='*60}\n{PASS} passed, {FAIL_N} failed")
 shutil.rmtree(TMP, ignore_errors=True)
