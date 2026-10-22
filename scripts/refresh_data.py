@@ -85,7 +85,8 @@ BRAND_NORMALIZE = {
     "bsa": "Jawa",
 }
 
-# Merge sub-brands into parent brand (applied AFTER BU is computed so BU is unaffected)
+# Merge sub-brands into parent brand. Applied as each row is read from Drive, so every stored lead already says
+# "Bajaj" -- the original "Triumph" / "KTM" is gone by the time a BU is chosen (see resolve_bu).
 BRAND_ALIASES = {
     "ktm":                   "Bajaj",
     "triumph":               "Bajaj",
@@ -754,6 +755,19 @@ BU_ALIASES = {
 def normalize_bu(bu: str) -> str:
     """Apply BU_ALIASES to consolidate variant BU names into canonical ones."""
     return BU_ALIASES.get(bu.strip().lower(), bu)
+
+# BU of the sub-brands BRAND_ALIASES folds into Bajaj. A lead no longer says "Triumph" or "KTM" by the time its BU is
+# chosen (it says "Bajaj", which would file it under MC), but its model name still starts with the sub-brand.
+SUBBRAND_BU = {'triumph': 'TRM', 'ktm': 'PB'}
+
+def resolve_bu(model: str, brand: str, model_to_bu) -> str:
+    """BU a lead is filed under. The Model Mapping tab decides when it lists the model. For a model it doesn't list:
+    the BU of the sub-brand its name starts with (Triumph -> TRM, KTM -> PB), else the lead's brand (TVS -> TVS,
+    Bajaj -> MC)."""
+    bu = (model_to_bu or {}).get(model.lower())
+    if not bu:
+        bu = SUBBRAND_BU.get(model.strip().split(' ', 1)[0].lower()) or brand
+    return normalize_bu(bu)
 
 # City name normalization — merges alternate spellings into one canonical form
 CITY_NORMALIZE = {
@@ -1457,7 +1471,7 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
     for r in all_rows:
         brand   = str(r.get("brand",  "") or "").strip()
         brand   = BRAND_NORMALIZE.get(brand.lower(), brand)   # idempotent — stored rows already normalized
-        brand_raw = brand                                       # pre-alias brand for BU fallback
+        brand_raw = brand                                       # fallback BU for a model the Model Mapping tab lacks
         brand   = BRAND_ALIASES.get(brand.lower(), brand)     # idempotent — stored rows already aliased
         medium  = str(r.get("Medium", "") or "").strip() or "Unknown"
         state   = normalize_state(str(r.get("State",  "") or "").strip()) or "Unknown"
@@ -1506,8 +1520,8 @@ def build_aggregations(all_rows, model_to_bu=None, oem_data=None):
         inc(model_month[model],   month)
         inc(model_medium_month[model][medium], month)
 
-        # BU aggregations — mapped models use the xlsx BU, all others fall back to pre-alias brand
-        bu = normalize_bu(model_to_bu.get(model.lower(), brand_raw) if model_to_bu else brand_raw)
+        # BU aggregations — the Model Mapping tab's BU; for models it lacks, the sub-brand in the model name, else the brand
+        bu = resolve_bu(model, brand_raw, model_to_bu)
         inc(by_bu,          bu)
         inc(bu_brand[bu],   brand)
         inc(bu_month[bu],   month)

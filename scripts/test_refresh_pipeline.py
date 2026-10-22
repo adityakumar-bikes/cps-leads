@@ -742,6 +742,45 @@ check("two sheet rows that land on one lead-data model are added up, not overwri
       ask27["Oct'2026"]["Hero"]["Hero Super Splendor XTEC"] == {"t": 1050, "o": 210, "g": 315, "f": 525, "p": 0}, ask27["Oct'2026"]["Hero"])
 check("brand names are mapped too (OLA -> Ola Electric)", "Ola S1 Pro" in ask27["Oct'2026"]["Ola Electric"], list(ask27["Oct'2026"]))
 
+# ============ RUN 28: BU of Triumph / KTM models the Model Mapping tab doesn't list =============
+print("\n== RUN 28: BU assignment (Model Mapping tab first, then the sub-brand in the model name, then the brand) ==")
+_map28 = {"triumph speed 400": "PB-TRM", "bajaj pulsar ns200": "MC", "bajaj wego p70": "CV", "triumph oddball": "MC"}
+check("model in the tab -> the tab's BU ('PB-TRM' reads as TRM)", rd.resolve_bu("Triumph Speed 400", "Bajaj", _map28) == "TRM")
+check("the tab wins over the sub-brand in the name", rd.resolve_bu("Triumph Oddball", "Bajaj", _map28) == "MC")
+check("Triumph model missing from the tab -> TRM (the Tracker 400 case)", rd.resolve_bu("Triumph Tracker 400", "Bajaj", _map28) == "TRM")
+check("KTM model missing from the tab -> PB", rd.resolve_bu("KTM RC 125", "Bajaj", _map28) == "PB")
+check("other model missing from the tab -> the brand's BU (Bajaj -> MC, TVS -> TVS)",
+      rd.resolve_bu("Bajaj WEGO P50", "Bajaj", _map28) == "MC" and rd.resolve_bu("TVS Raider", "TVS", _map28) == "TVS")
+check("no Model Mapping at all (tab failed to load) still files Triumph under TRM",
+      rd.resolve_bu("Triumph Tracker 400", "Bajaj", {}) == "TRM" and rd.resolve_bu("Triumph Tracker 400", "Bajaj", None) == "TRM")
+
+def _bu_rows():
+    out = []
+    def add(brand, model, k):
+        for _ in range(k):
+            n = len(out)
+            out.append({"opty_id": f"b{n:06d}", "encrypt_mobile_number": f"bm{n}", "brand": brand, "model": model, "State": "Maharashtra",
+                        "City": "Pune", "oem_crm_id": "C1", "Medium": "Organic", "lead_type": "1105", "Lead_Month": "Oct'2026", "Date": "2026-10-03"})
+    # rows as main() stores them: BRAND_ALIASES has already turned "Triumph" / "KTM" into "Bajaj"
+    add("Bajaj", "Triumph Tracker 400", 3)
+    add("Bajaj", "Triumph Speed 400", 2)
+    add("Bajaj", "KTM RC 125", 1)
+    add("Bajaj", "Bajaj Pulsar NS200", 4)
+    add("Bajaj", "Bajaj WEGO P50", 2)
+    add("TVS", "TVS Raider", 5)
+    return out
+d28 = rd.build_aggregations(_bu_rows(), model_to_bu=_map28)
+check("by_bu: TRM = Tracker 400 + Speed 400 (5), PB = the KTM (1), MC = Pulsar + WEGO P50 (6)",
+      (d28["by_bu"]["TRM"], d28["by_bu"]["PB"], d28["by_bu"]["MC"]) == (5, 1, 6), d28["by_bu"])
+check("model_bu / bu_model say the Tracker 400 is TRM", d28["model_bu"]["Triumph Tracker 400"] == "TRM" and "Triumph Tracker 400" in d28["bu_model"]["TRM"] and "Triumph Tracker 400" not in d28["bu_model"].get("MC", {}), d28["model_bu"])
+check("the Tracker 400 stays a Bajaj model", d28["bu_brand"]["TRM"] == {"Bajaj": 5} and d28["model_brand"]["Triumph Tracker 400"] == {"Bajaj": 3}, d28["bu_brand"])
+_prods28 = _C(r[3] for r in rd.decode_fact(d28["fact"]))
+check("lead table files every lead under its BU (this is what every tab filters on)",
+      _prods28 == _C({("Bajaj", "TRM", "Triumph Tracker 400"): 3, ("Bajaj", "TRM", "Triumph Speed 400"): 2, ("Bajaj", "PB", "KTM RC 125"): 1,
+                      ("Bajaj", "MC", "Bajaj Pulsar NS200"): 4, ("Bajaj", "MC", "Bajaj WEGO P50"): 2, ("TVS", "TVS", "TVS Raider"): 5}), dict(_prods28))
+_unaliased = [dict(r, brand="Triumph") if r["model"].startswith("Triumph") else r for r in _bu_rows()]   # same rows, brand still "Triumph"
+check("rows that still carry brand 'Triumph' land in the same place", _C(r[3] for r in rd.decode_fact(rd.build_aggregations(_unaliased, model_to_bu=_map28)["fact"])) == _prods28)
+
 print(f"\n{'='*60}\n{PASS} passed, {FAIL_N} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if FAIL_N else 0)
