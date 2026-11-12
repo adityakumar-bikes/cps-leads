@@ -54,6 +54,44 @@ body.light #theme-toggle{background:rgba(255,255,255,.25);border-color:rgba(255,
        font-size:.82rem;font-weight:600;cursor:pointer;transition:opacity .2s;}
 .fbtn:hover{opacity:.85;} .freset{background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:6px 14px;font-size:.82rem;cursor:pointer;}
 .freset:hover{border-color:var(--hl);color:var(--txt);}
+/* Saved views (⭐ Views menu in the filter bar) */
+.sv-wrap{position:relative;display:inline-block;}
+.sv-btn{display:inline-flex;align-items:center;gap:5px;max-width:230px;white-space:nowrap;}
+.sv-btn.on{border-color:var(--hl);color:var(--txt);}
+.sv-drop{position:absolute;top:calc(100% + 4px);left:0;z-index:9999;width:380px;max-width:calc(100vw - 16px);background:var(--bg3);
+          border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.5);overflow:hidden;}
+.sv-head{padding:9px 12px 4px;font-size:.74rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);
+          display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+.sv-head span{font-weight:400;text-transform:none;letter-spacing:0;font-size:.7rem;}
+.sv-list{max-height:300px;overflow-y:auto;padding:2px 4px 4px;}
+.sv-empty{padding:10px 8px 8px;font-size:.78rem;color:var(--muted);line-height:1.45;}
+.sv-row{display:flex;align-items:center;gap:2px;border-radius:5px;margin:1px 0;}
+.sv-row:hover{background:var(--hover);}
+.sv-row.cur{box-shadow:inset 3px 0 0 var(--hl);}
+.sv-apply{flex:1;min-width:0;text-align:left;background:none;border:none;color:var(--txt);cursor:pointer;padding:6px 8px;font:inherit;}
+.sv-name{display:block;font-size:.84rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sv-tag{font-size:.64rem;font-weight:600;color:var(--hl);border:1px solid var(--hl);border-radius:8px;padding:0 5px;margin-left:4px;vertical-align:1px;}
+.sv-meta{display:block;font-size:.7rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px;}
+.sv-acts{display:flex;flex-shrink:0;padding-right:2px;}
+.sv-ic{background:none;border:none;cursor:pointer;font-size:.9rem;padding:4px 6px;border-radius:4px;color:var(--muted);line-height:1;min-width:22px;}
+.sv-ic:hover,.sv-ic.on{color:var(--txt);background:var(--card);}
+.sv-ic.del:hover{color:var(--red);}
+.sv-ic:not(.on)[aria-label="Open with this view"]{opacity:.55;}
+.sv-edit{padding:5px 6px;gap:6px;}
+.sv-edit .sv-in{flex:1;min-width:0;}
+.sv-q{flex:1;font-size:.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sv-foot{border-top:1px solid var(--border);background:var(--bg);padding:9px 10px 8px;display:flex;flex-direction:column;gap:6px;}
+.sv-cur{font-size:.7rem;color:var(--muted);line-height:1.4;}
+.sv-cur b{color:var(--txt);font-weight:600;}
+.sv-saverow{display:flex;gap:6px;}
+.sv-in{flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:6px 8px;color:var(--txt);font-size:.8rem;outline:none;box-sizing:border-box;}
+.sv-in:focus{border-color:var(--hl);}
+.sv-msg{font-size:.72rem;color:var(--muted);min-height:1em;line-height:1.35;}
+.sv-msg.err{color:var(--red);}
+#sv-toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--bg3);color:var(--txt);border:1px solid var(--border);
+           border-radius:8px;padding:9px 16px;font-size:.82rem;box-shadow:0 8px 28px rgba(0,0,0,.45);z-index:10000;max-width:90vw;
+           opacity:0;pointer-events:none;transition:opacity .2s;}
+#sv-toast.show{opacity:1;}
 /* KPI */
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;padding:22px 28px 0;}
 .kpi{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px;
@@ -203,6 +241,22 @@ body.light #theme-toggle{background:rgba(255,255,255,.25);border-color:rgba(255,
   </div>
   <button class="fbtn" onclick="applyFilters()">Apply</button>
   <button class="freset" onclick="resetFilters()">Reset</button>
+  <div class="sv-wrap" id="sv-wrap">
+    <button class="freset sv-btn" id="sv-btn" onclick="svToggle()" aria-haspopup="dialog" aria-expanded="false"
+      title="Save the filters on the bar as a named view and bring them back with one click. Views are kept in this browser.">⭐ <span id="sv-btn-lbl">Views</span></button>
+    <div class="sv-drop" id="sv-drop" role="dialog" aria-label="Saved views" style="display:none">
+      <div class="sv-head">Saved views <span>kept in this browser</span></div>
+      <div class="sv-list" id="sv-list"></div>
+      <div class="sv-foot">
+        <div class="sv-cur">On the bar now: <b id="sv-cur">—</b></div>
+        <div class="sv-saverow">
+          <input class="sv-in" id="sv-name" maxlength="40" placeholder="Name this view, e.g. Jawa – Nov" autocomplete="off" oninput="svNameInput()" onkeydown="svNameKey(event)">
+          <button class="fbtn" id="sv-save" onclick="svSaveClick()">Save</button>
+        </div>
+        <div class="sv-msg" id="sv-msg" role="status" aria-live="polite"></div>
+      </div>
+    </div>
+  </div>
   <span id="filter-label" style="font-size:.78rem;color:var(--muted);margin-left:4px;"></span>
 </div>
 <div class="kpi-grid">
@@ -1140,7 +1194,9 @@ window.addEventListener('DOMContentLoaded',async()=>{
     if(hm)hm.insertAdjacentHTML('beforeend','<div style="color:#f85149;font-size:.78rem;margin-top:4px">⚠ '+String(e.message||e).replace(/</g,'&lt;')+'</div>');
     return;
   }
+  const _svView=svOnLoad();     // a saved view marked "opens on load" goes on the bar before the first draw
   applyFilters();
+  svAfterLoad(_svView);
 });
 function populateBrandFilter(){
   const prev=[..._msSel.brand];
@@ -1283,6 +1339,7 @@ function applyFilters(){
   renderAll();
   if(activeTab==='oem')renderOEM();
   if(activeTab==='flags')renderFlags();
+  try{svRefreshButton();}catch(e){console.error('saved views:',e);}
 }
 function resetFilters(){
   fBrand=[];fMedium=[];fMonth=[];fBU=[];fModel=[];fState=[];fIMS='';
@@ -1296,6 +1353,324 @@ function resetFilters(){
   msSetOptions('state',Object.keys(D.by_state||{}).sort());
   applyFilters();
 }
+// <saved-views-logic>
+// ─── Saved views: named top-bar filter sets, kept per browser ───────────────────────────────────────────────────
+// The site has no login, so "each user's views" are the views in that person's own browser (localStorage); nothing is
+// sent anywhere. This block touches neither the page nor the filters: its functions take and return plain data, so
+// scripts/test_saved_views.js can drive them directly. The menu itself is in the <saved-views-ui> block below.
+const SV_KEY='cps-views-v1', SV_MAX=30, SV_NAME_MAX=40, SV_VAL_MAX=120, SV_LIST_MAX=500;
+const SV_IDS=['brand','medium','month','bu','model','state'];                       // the multi-select filters, in bar order
+const SV_LABEL={brand:['Brand','brands'],medium:['Source','sources'],month:['Month','months'],bu:['BU','BUs'],model:['Model','models'],state:['State','states']};
+const svEmpty=()=>({views:[],def:null});
+const svEsc=t=>String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+const svCleanName=s=>String(s==null?'':s).replace(/\s+/g,' ').trim().slice(0,SV_NAME_MAX).trim();
+const svSameName=(a,b)=>svCleanName(a).toLowerCase()===svCleanName(b).toLowerCase();
+function svCleanList(a){
+  if(!Array.isArray(a))return[];
+  const out=[],seen=new Set();
+  for(const v of a){
+    if(typeof v!=='string')continue;
+    const s=v.slice(0,SV_VAL_MAX);
+    if(!s||seen.has(s))continue;
+    seen.add(s);out.push(s);
+    if(out.length>=SV_LIST_MAX)break;
+  }
+  return out;
+}
+function svCleanFilters(f){
+  f=(f&&typeof f==='object')?f:{};
+  const o={};
+  for(const id of SV_IDS)o[id]=svCleanList(f[id]);
+  o.ims=(f.ims==='Y'||f.ims==='N')?f.ims:'';
+  return o;
+}
+const svIdOk=id=>typeof id==='string'&&/^[a-z0-9]{3,24}$/.test(id);
+function svNewId(views){
+  const used=new Set(views.map(v=>v.id));
+  let id;
+  do{id='v'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);}while(used.has(id));
+  return id;
+}
+// Everything read back from storage goes through here: wrong shapes, bad or repeated names, too many views -> dropped or repaired.
+function svSanitize(raw){
+  const out=svEmpty();
+  if(!raw||typeof raw!=='object'||raw.v!==1||!Array.isArray(raw.views))return out;
+  const ids=new Set(),names=new Set();
+  for(const r of raw.views){
+    if(out.views.length>=SV_MAX)break;
+    if(!r||typeof r!=='object')continue;
+    const name=svCleanName(r.name);
+    if(!name||names.has(name.toLowerCase()))continue;
+    let id=r.id;
+    if(!svIdOk(id)||ids.has(id))id=svNewId(out.views);
+    ids.add(id);names.add(name.toLowerCase());
+    const t=Number.isFinite(r.t)?r.t:0;
+    out.views.push({id,name,f:svCleanFilters(r.f),t,u:Number.isFinite(r.u)?r.u:t});
+  }
+  out.def=out.views.some(v=>v.id===raw.def)?raw.def:null;
+  return out;
+}
+// Two filter sets are "the same" when every filter holds the same values, in any order.
+const svSig=f=>JSON.stringify([...SV_IDS.map(id=>[...(f[id]||[])].sort()),f.ims||'']);
+// One-line description, worded like the 🔍 label beside the Apply button.
+function svSummary(f){
+  const parts=[];
+  for(const id of SV_IDS){
+    const a=f[id]||[];
+    if(a.length)parts.push(SV_LABEL[id][0]+': '+(a.length===1?a[0]:a.length+' '+SV_LABEL[id][1]));
+  }
+  if(f.ims)parts.push('IMS: '+f.ims);
+  return parts.length?parts.join(' · '):'No filters (all data)';
+}
+// Each operation returns {S:newState,...} or {err:code}; none changes the state it is given.
+function svSave(S,name,f,now){                     // same name (any case) = replace that view's filters
+  name=svCleanName(name);
+  if(!name)return{err:'empty'};
+  f=svCleanFilters(f);
+  const i=S.views.findIndex(v=>svSameName(v.name,name));
+  if(i>=0)return{S:{...S,views:S.views.map((v,k)=>k===i?{...v,f,u:now}:v)},id:S.views[i].id,replaced:true};
+  if(S.views.length>=SV_MAX)return{err:'full'};
+  const id=svNewId(S.views);
+  return{S:{...S,views:[...S.views,{id,name,f,t:now,u:now}]},id,replaced:false};
+}
+function svOverwrite(S,id,f,now){
+  if(!S.views.some(v=>v.id===id))return{err:'missing'};
+  return{S:{...S,views:S.views.map(v=>v.id===id?{...v,f:svCleanFilters(f),u:now}:v)}};
+}
+function svRename(S,id,name,now){
+  name=svCleanName(name);
+  if(!name)return{err:'empty'};
+  if(!S.views.some(v=>v.id===id))return{err:'missing'};
+  if(S.views.some(v=>v.id!==id&&svSameName(v.name,name)))return{err:'exists'};
+  return{S:{...S,views:S.views.map(v=>v.id===id?{...v,name,u:now}:v)}};
+}
+function svRemove(S,id){
+  if(!S.views.some(v=>v.id===id))return{err:'missing'};
+  return{S:{views:S.views.filter(v=>v.id!==id),def:S.def===id?null:S.def}};
+}
+function svSetDefault(S,id){                       // id = null clears it
+  if(id!==null&&!S.views.some(v=>v.id===id))return{err:'missing'};
+  return{S:{...S,def:id}};
+}
+// The values of a saved filter that still exist among the options on offer, and how many don't.
+function svKeep(values,options){
+  const ok=new Set(options),vals=values||[];
+  const kept=vals.filter(v=>ok.has(v));
+  return{kept,dropped:vals.length-kept.length};
+}
+// Storage is passed in (window.localStorage, or a fake in the tests). These never throw.
+function svLoad(st){
+  let txt;
+  try{txt=st.getItem(SV_KEY);}catch(e){return{S:svEmpty(),problem:'unavailable'};}
+  if(txt==null)return{S:svEmpty(),problem:null};
+  let raw=null;
+  try{raw=JSON.parse(txt);}catch(e){}
+  if(!raw||typeof raw!=='object'||raw.v!==1||!Array.isArray(raw.views)){
+    try{st.setItem(SV_KEY+'.bak',txt);}catch(e){}   // damaged or not ours: keep a copy, start empty (the next save replaces it)
+    return{S:svEmpty(),problem:'corrupt'};
+  }
+  return{S:svSanitize(raw),problem:null};
+}
+function svPersist(st,S){
+  try{st.setItem(SV_KEY,JSON.stringify({v:1,views:S.views,def:S.def}));return true;}catch(e){return false;}
+}
+// </saved-views-logic>
+// <saved-views-ui>
+// The ⭐ Views menu beside Apply / Reset. A view is the six multi-selects plus IMS as they stand on the filter bar.
+let _sv=svEmpty(),_svOpen=false,_svEdit=null,_svReplace='',_svToastT=null;
+const svStore=()=>{try{return window.localStorage;}catch(e){return null;}};
+const svReload=()=>svLoad(svStore());
+// Every change reads storage first and writes it back, so a view saved in another tab isn't undone by this tab's older copy.
+function svMutate(fn){
+  const st=svStore(),cur=svLoad(st);
+  if(cur.problem==='unavailable')return{err:'unavailable'};
+  _sv=cur.S;
+  const r=fn(cur.S);
+  if(r.err)return r;
+  if(!svPersist(st,r.S))return{err:'unavailable'};
+  _sv=r.S;
+  return r;
+}
+function svCurrentFilters(){
+  const f={};
+  for(const id of SV_IDS)f[id]=getMS(id);
+  f.ims=document.getElementById('ims-filter')?.value||'';
+  return f;
+}
+// Put a saved filter set on the bar. Start from a clean bar (what Reset does, minus the redraw), set Brand and BU first because
+// they decide which months and models are on offer, then the rest against the lists as they now stand. Values that no longer
+// exist in the data are skipped, and counted: that count is the return value. (Values that exist but can't match anything next to the
+// other chosen filters, e.g. BU TVS beside brand Jawa, are dropped by the lists below without counting: they never selected a lead.)
+// render=false leaves the drawing to the caller (the page's own first draw).
+function svApplyFilters(f,render){
+  const full={brand:D.brands_all,medium:D.mediums_all,month:D.months_present,bu:Object.keys(D.by_bu||{}),model:Object.keys(D.by_model||{}),state:Object.keys(D.by_state||{})};
+  let gone=0;
+  for(const id of SV_IDS)gone+=svKeep(f[id],full[id]).dropped;
+  if(_msOpenId)msClose(_msOpenId);
+  SV_IDS.forEach(id=>_msSel[id].clear());
+  const ims=document.getElementById('ims-filter');if(ims)ims.value='';
+  fBrand=[];fBU=[];
+  msSetOptions('brand',D.brands_all);
+  msSetOptions('medium',D.mediums_all);
+  msSetOptions('month',D.months_present);
+  msSetOptions('bu',Object.keys(D.by_bu||{}));
+  msSetOptions('state',Object.keys(D.by_state||{}).sort());
+  populateModelFilter();
+  const take=id=>{_msSel[id]=new Set(svKeep(f[id],_msAllOpts[id]).kept);};
+  take('brand');take('bu');
+  fBrand=getMS('brand');fBU=getMS('bu');
+  populateBUFilter();populateBrandFilter();
+  fBrand=getMS('brand');fBU=getMS('bu');
+  populateMonthFilter();populateModelFilter();
+  take('medium');take('month');take('model');take('state');
+  SV_IDS.forEach(id=>{msRender(id);msUpdateLabel(id);});
+  if(ims)ims.value=f.ims||'';
+  if(render!==false)applyFilters();
+  return gone;
+}
+const svSkipped=n=>n?` — ${n} saved selection${n>1?'s':''} no longer in the data skipped`:'';
+function svApply(id){
+  const v=_sv.views.find(x=>x.id===id);if(!v)return;
+  const gone=svApplyFilters(v.f,true);
+  svClose();
+  svToast('View “'+v.name+'” applied'+svSkipped(gone));
+}
+function svRender(){
+  const list=document.getElementById('sv-list');if(!list)return;
+  const cur=svCurrentFilters(),sig=svSig(cur);
+  document.getElementById('sv-cur').textContent=svSummary(cur);
+  if(!_sv.views.length){
+    list.innerHTML='<div class="sv-empty">No saved views yet. Set the filters you want, give them a name below and press Save.</div>';
+    return;
+  }
+  list.innerHTML=_sv.views.map(v=>{
+    const id=v.id,nm=svEsc(v.name);
+    if(_svEdit&&_svEdit.id===id&&_svEdit.kind==='rename')
+      return `<div class="sv-row sv-edit"><input id="sv-ren" class="sv-in" maxlength="${SV_NAME_MAX}" value="${nm}" onkeydown="svRenameKey(event,'${id}')"><button class="fbtn" onclick="svRenameDo('${id}')">OK</button><button class="freset" onclick="svEditEnd()">Cancel</button></div>`;
+    if(_svEdit&&_svEdit.id===id&&_svEdit.kind==='delete')
+      return `<div class="sv-row sv-edit"><span class="sv-q">Delete “${nm}”?</span><button class="fbtn" onclick="svDeleteDo('${id}')">Delete</button><button class="freset" onclick="svEditEnd()">Keep</button></div>`;
+    const isCur=svSig(v.f)===sig,isDef=_sv.def===id;
+    return `<div class="sv-row${isCur?' cur':''}"><button class="sv-apply" onclick="svApply('${id}')" title="Put this view's filters on the bar">`+
+      `<span class="sv-name">${isCur?'✓ ':''}${nm}${isDef?' <span class="sv-tag">opens on load</span>':''}</span><span class="sv-meta">${svEsc(svSummary(v.f))}</span></button>`+
+      `<span class="sv-acts">`+
+      `<button class="sv-ic${isDef?' on':''}" onclick="svDefault('${id}')" title="${isDef?'The dashboard opens with this view — click to stop':'Open the dashboard with this view every time'}" aria-label="Open with this view">📌</button>`+
+      `<button class="sv-ic" onclick="svUpdate('${id}')" title="Replace this view's filters with the ones on the bar now" aria-label="Update this view">↻</button>`+
+      `<button class="sv-ic" onclick="svRenameStart('${id}')" title="Rename" aria-label="Rename">✎</button>`+
+      `<button class="sv-ic del" onclick="svDeleteStart('${id}')" title="Delete" aria-label="Delete">✕</button></span></div>`;
+  }).join('');
+}
+function svMsg(t,err){const m=document.getElementById('sv-msg');if(!m)return;m.textContent=t||'';m.classList.toggle('err',!!err);}
+function svFail(r){
+  svMsg(r.err==='full'?`You can keep up to ${SV_MAX} views — delete one first.`:
+        r.err==='exists'?'Another view already has that name.':
+        r.err==='empty'?'The name can\'t be empty.':
+        r.err==='missing'?'That view no longer exists (deleted in another tab?).':
+        'Couldn\'t save — this browser is blocking site storage (private window?).',true);
+  svRender();
+}
+function svToggle(){_svOpen?svClose():svOpen();}
+function svOpen(){
+  if(_msOpenId)msClose(_msOpenId);
+  const r=svReload();_sv=r.S;
+  _svOpen=true;_svEdit=null;_svReplace='';
+  document.getElementById('sv-drop').style.display='block';
+  document.getElementById('sv-btn').setAttribute('aria-expanded','true');
+  document.getElementById('sv-save').textContent='Save';
+  svMsg(r.problem==='corrupt'?'The views saved in this browser could not be read, so the list starts empty (a copy was kept).':
+        r.problem==='unavailable'?'This browser is blocking site storage, so views can\'t be saved here (private window?).':'',r.problem!==null);
+  svRender();svPlace();
+}
+function svClose(){
+  _svOpen=false;_svEdit=null;
+  const d=document.getElementById('sv-drop');if(d)d.style.display='none';
+  const b=document.getElementById('sv-btn');if(b)b.setAttribute('aria-expanded','false');
+}
+function svPlace(){                             // the bar wraps, so the button can be anywhere: keep the menu inside the window
+  const d=document.getElementById('sv-drop'),w=document.getElementById('sv-wrap');
+  d.style.left='0px';
+  const over=d.getBoundingClientRect().right-(window.innerWidth-8);
+  if(over>0)d.style.left=(-Math.min(over,Math.max(0,w.getBoundingClientRect().left-8)))+'px';
+}
+function svNameInput(){_svReplace='';document.getElementById('sv-save').textContent='Save';svMsg('');}
+function svNameKey(e){if(e.key==='Enter'){e.preventDefault();svSaveClick();}}
+function svSaveClick(){
+  const inp=document.getElementById('sv-name'),name=svCleanName(inp.value);
+  if(!name){svMsg('Give the view a name first.',true);inp.focus();return;}
+  const same=_sv.views.find(v=>svSameName(v.name,name));
+  if(same&&_svReplace!==same.id){                // an existing name is only overwritten on a second, deliberate press
+    _svReplace=same.id;
+    document.getElementById('sv-save').textContent='Replace';
+    svMsg('“'+same.name+'” already exists. Press Replace to overwrite it with the filters on the bar.',true);
+    return;
+  }
+  const f=svCurrentFilters(),r=svMutate(S=>svSave(S,name,f,Date.now()));
+  if(r.err){svFail(r);return;}
+  inp.value='';_svReplace='';
+  document.getElementById('sv-save').textContent='Save';
+  svRender();svRefreshButton();
+  svMsg((r.replaced?'Updated “':'Saved “')+r.S.views.find(v=>v.id===r.id).name+'”.');   // the stored name (a replace keeps the original spelling)
+}
+function svUpdate(id){
+  const f=svCurrentFilters(),v=_sv.views.find(x=>x.id===id),r=svMutate(S=>svOverwrite(S,id,f,Date.now()));
+  if(r.err){svFail(r);return;}
+  svRender();svRefreshButton();svMsg('Updated “'+(v?v.name:'view')+'” with the filters on the bar.');
+}
+function svRenameStart(id){
+  _svEdit={kind:'rename',id};svMsg('');svRender();
+  const i=document.getElementById('sv-ren');if(i){i.focus();i.select();}
+}
+function svRenameKey(e,id){
+  if(e.key==='Enter'){e.preventDefault();svRenameDo(id);}
+  else if(e.key==='Escape'){e.stopPropagation();svEditEnd();}
+}
+function svRenameDo(id){
+  const name=svCleanName(document.getElementById('sv-ren')?.value),r=svMutate(S=>svRename(S,id,name,Date.now()));
+  if(r.err){svFail(r);return;}
+  _svEdit=null;svRender();svRefreshButton();svMsg('Renamed to “'+name+'”.');
+}
+function svDeleteStart(id){_svEdit={kind:'delete',id};svMsg('');svRender();}
+function svDeleteDo(id){
+  const v=_sv.views.find(x=>x.id===id),r=svMutate(S=>svRemove(S,id));
+  if(r.err){_svEdit=null;svFail(r);return;}
+  _svEdit=null;svRender();svRefreshButton();svMsg('Deleted “'+(v?v.name:'view')+'”.');
+}
+function svEditEnd(){_svEdit=null;svRender();}
+function svDefault(id){
+  const v=_sv.views.find(x=>x.id===id),was=_sv.def===id,r=svMutate(S=>svSetDefault(S,was?null:id));
+  if(r.err){svFail(r);return;}
+  svRender();
+  svMsg(was?'The dashboard will open with no filters again.':'The dashboard will open with “'+(v?v.name:'this view')+'” on the bar.');
+}
+// The button names the saved view the bar currently matches (if any), so it is always clear which one is on.
+function svRefreshButton(){
+  const lbl=document.getElementById('sv-btn-lbl');if(!lbl)return;
+  const sig=svSig(svCurrentFilters()),m=_sv.views.find(v=>svSig(v.f)===sig);
+  lbl.textContent=m?(m.name.length>18?m.name.slice(0,18)+'…':m.name):'Views'+(_sv.views.length?' ('+_sv.views.length+')':'');
+  document.getElementById('sv-btn').classList.toggle('on',!!m);
+  if(_svOpen)svRender();
+}
+function svToast(msg){
+  let t=document.getElementById('sv-toast');
+  if(!t){t=document.createElement('div');t.id='sv-toast';t.setAttribute('role','status');t.setAttribute('aria-live','polite');document.body.appendChild(t);}
+  t.textContent=msg;
+  void t.offsetWidth;
+  t.classList.add('show');
+  clearTimeout(_svToastT);_svToastT=setTimeout(()=>t.classList.remove('show'),4500);
+}
+// Page start: load this browser's views and, if one is marked "opens on load", put it on the bar before the first draw.
+function svOnLoad(){
+  const r=svReload();_sv=r.S;
+  document.addEventListener('click',e=>{if(_svOpen&&!e.target.closest('#sv-wrap'))svClose();},true);
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&_svOpen){svClose();const b=document.getElementById('sv-btn');if(b)b.focus();}});
+  window.addEventListener('storage',e=>{if(e.key===SV_KEY||e.key===null){_sv=svReload().S;svRefreshButton();}});
+  if(r.problem==='corrupt')svToast('The views saved in this browser could not be read, so the list starts empty.');
+  const v=_sv.views.find(x=>x.id===_sv.def);
+  return v?{v,gone:svApplyFilters(v.f,false)}:null;
+}
+function svAfterLoad(x){
+  if(x)svToast('Opened with your view “'+x.v.name+'”'+svSkipped(x.gone));
+}
+// </saved-views-ui>
 // <fact-engine>
 /* ═════════════════════════════════════════════════════════════════════════════════════════════
    FACT ENGINE — every tab counts leads from one table, so every filter cuts every number.

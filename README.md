@@ -36,7 +36,23 @@ add up to the same total. Nothing is estimated by scaling one pre-aggregate by a
 * Encoder: `FactTable` in `scripts/refresh_data.py`; `fact_check()` reconciles it with the 1-D totals and with the Ask cube on every run
   (a mismatch becomes a warning in the page header).
 * Tests: `python3 scripts/test_refresh_pipeline.py`, `node scripts/test_fact_engine.js` (brute-force check of the engine on random
-  filter mixes), `node scripts/test_ask_filters.js` (Ask vs Actual tab).
+  filter mixes), `node scripts/test_ask_filters.js` (Ask vs Actual tab), `node scripts/test_saved_views.js` (saved views, below).
+
+### Saved views (⭐ Views, next to Apply / Reset)
+
+Each person can save the filters on the bar (Brand, Source, Month, BU, Model, State, IMS) under a name — up to 30 views — and bring
+them back with one click; a view can also be marked **opens on load**, so the dashboard starts on it. The site has no login, so views
+live in **that browser's `localStorage`** (key `cps-views-v1`): each person's list is their own, nothing is sent anywhere, it does not
+follow them to another browser or device, and clearing site data (or a private window) loses it. A view stores the exact values
+(e.g. `Nov'2026`), so it does not roll forward to the next month by itself; values that no longer exist in the data are skipped and
+the page says how many.
+
+* Code: two marked blocks in `index.html` — `<saved-views-logic>` (pure functions: names, cleaning, add / replace / rename / delete /
+  default, reading back damaged storage) and `<saved-views-ui>` (the menu; it puts a view on the bar the way Reset + the cascading
+  option lists do, then redraws once).
+* Test: `node scripts/test_saved_views.js` drives the logic block directly (hand-written cases plus thousands of random operations
+  checked against the invariants). The menu itself was checked in a browser: for random filter mixes, a re-applied view gives the
+  same bar, option lists and lead counts as setting the filters by hand.
 
 ---
 
